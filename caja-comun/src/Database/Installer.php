@@ -25,42 +25,102 @@ class Installer {
 				slug VARCHAR(80) NOT NULL,
 				name VARCHAR(120) NOT NULL,
 				type VARCHAR(60) NOT NULL,
+				description TEXT NULL,
 				status VARCHAR(20) NOT NULL DEFAULT 'active',
+				display_order INT NOT NULL DEFAULT 0,
+				is_visible TINYINT(1) NOT NULL DEFAULT 1,
+				allow_manual TINYINT(1) NOT NULL DEFAULT 1,
+				monthly_process TINYINT(1) NOT NULL DEFAULT 1,
 				created_at DATETIME NOT NULL,
 				updated_at DATETIME NOT NULL,
 				PRIMARY KEY (id),
-				UNIQUE KEY slug (slug)
+				UNIQUE KEY slug (slug),
+				KEY idx_type_status (type, status)
+			) $charset_collate;",
+			"CREATE TABLE {$this->database_manager->table( 'categories' )} (
+				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+				slug VARCHAR(80) NOT NULL,
+				name VARCHAR(120) NOT NULL,
+				description TEXT NULL,
+				color VARCHAR(20) NULL,
+				icon VARCHAR(80) NULL,
+				parent_id BIGINT UNSIGNED NULL,
+				display_order INT NOT NULL DEFAULT 0,
+				active TINYINT(1) NOT NULL DEFAULT 1,
+				created_at DATETIME NOT NULL,
+				updated_at DATETIME NOT NULL,
+				PRIMARY KEY (id),
+				UNIQUE KEY slug (slug),
+				KEY idx_parent_id (parent_id)
 			) $charset_collate;",
 			"CREATE TABLE {$this->database_manager->table( 'monthly_incomes' )} (
 				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 				month_key CHAR(7) NOT NULL,
 				user_id BIGINT UNSIGNED NOT NULL,
 				amount DECIMAL(14,2) NOT NULL,
+				status VARCHAR(20) NOT NULL DEFAULT 'confirmed',
 				notes TEXT NULL,
+				allocation_id BIGINT UNSIGNED NULL,
 				created_by BIGINT UNSIGNED NOT NULL,
 				created_at DATETIME NOT NULL,
 				updated_at DATETIME NOT NULL,
 				PRIMARY KEY (id),
 				UNIQUE KEY unique_month_user (month_key, user_id),
-				KEY idx_month_key (month_key)
+				KEY idx_month_key (month_key),
+				KEY idx_status (status)
 			) $charset_collate;",
 			"CREATE TABLE {$this->database_manager->table( 'transactions' )} (
 				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 				month_key CHAR(7) NOT NULL,
 				type VARCHAR(40) NOT NULL,
-				account_id BIGINT UNSIGNED NOT NULL,
-				counterparty_account_id BIGINT UNSIGNED NULL,
+				source_account_id BIGINT UNSIGNED NULL,
+				destination_account_id BIGINT UNSIGNED NULL,
 				category_id BIGINT UNSIGNED NULL,
+				subcategory_id BIGINT UNSIGNED NULL,
 				amount DECIMAL(14,2) NOT NULL,
-				direction VARCHAR(20) NOT NULL,
+				currency CHAR(3) NOT NULL DEFAULT 'EUR',
+				transaction_date DATE NOT NULL,
+				accounting_date DATE NULL,
 				description VARCHAR(190) NULL,
+				quick_note VARCHAR(190) NULL,
+				status VARCHAR(20) NOT NULL DEFAULT 'posted',
+				reviewed TINYINT(1) NOT NULL DEFAULT 0,
+				reconciled TINYINT(1) NOT NULL DEFAULT 0,
+				flagged TINYINT(1) NOT NULL DEFAULT 0,
 				auto_generated TINYINT(1) NOT NULL DEFAULT 0,
 				reference VARCHAR(120) NULL,
 				created_by BIGINT UNSIGNED NOT NULL,
 				created_at DATETIME NOT NULL,
+				updated_at DATETIME NOT NULL,
 				PRIMARY KEY (id),
 				KEY idx_month_key (month_key),
-				KEY idx_account_id (account_id)
+				KEY idx_type (type),
+				KEY idx_reviewed (reviewed),
+				KEY idx_status (status)
+			) $charset_collate;",
+			"CREATE TABLE {$this->database_manager->table( 'transaction_notes' )} (
+				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+				transaction_id BIGINT UNSIGNED NOT NULL,
+				note_type VARCHAR(20) NOT NULL DEFAULT 'internal',
+				content LONGTEXT NOT NULL,
+				is_pending TINYINT(1) NOT NULL DEFAULT 0,
+				created_by BIGINT UNSIGNED NOT NULL,
+				created_at DATETIME NOT NULL,
+				updated_at DATETIME NOT NULL,
+				PRIMARY KEY (id),
+				KEY idx_transaction_id (transaction_id)
+			) $charset_collate;",
+			"CREATE TABLE {$this->database_manager->table( 'transaction_attachments' )} (
+				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+				transaction_id BIGINT UNSIGNED NOT NULL,
+				attachment_id BIGINT UNSIGNED NOT NULL,
+				document_type VARCHAR(20) NOT NULL,
+				mime_type VARCHAR(120) NOT NULL,
+				created_by BIGINT UNSIGNED NOT NULL,
+				created_at DATETIME NOT NULL,
+				PRIMARY KEY (id),
+				KEY idx_transaction_id (transaction_id),
+				KEY idx_attachment_id (attachment_id)
 			) $charset_collate;",
 			"CREATE TABLE {$this->database_manager->table( 'monthly_allocations' )} (
 				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -79,17 +139,6 @@ class Installer {
 				updated_at DATETIME NOT NULL,
 				PRIMARY KEY (id),
 				UNIQUE KEY unique_month_key (month_key)
-			) $charset_collate;",
-			"CREATE TABLE {$this->database_manager->table( 'categories' )} (
-				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-				slug VARCHAR(80) NOT NULL,
-				name VARCHAR(120) NOT NULL,
-				type VARCHAR(30) NOT NULL DEFAULT 'expense',
-				active TINYINT(1) NOT NULL DEFAULT 1,
-				created_at DATETIME NOT NULL,
-				updated_at DATETIME NOT NULL,
-				PRIMARY KEY (id),
-				UNIQUE KEY slug (slug)
 			) $charset_collate;",
 			"CREATE TABLE {$this->database_manager->table( 'settings' )} (
 				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -124,15 +173,17 @@ class Installer {
 
 	private function seed_defaults(): void {
 		global $wpdb;
-		$now           = $this->database_manager->now();
+		$now            = $this->database_manager->now();
 		$accounts_table = $this->database_manager->table( 'accounts' );
 		$settings_table = $this->database_manager->table( 'settings' );
+		$categories_table = $this->database_manager->table( 'categories' );
 
 		$default_accounts = array(
-			array('slug' => 'common_budget', 'name' => 'Presupuesto Común', 'type' => 'common_budget'),
-			array('slug' => 'separated_pool', 'name' => 'Fondo Separado', 'type' => 'separated_pool'),
-			array('slug' => 'user_1_separated', 'name' => 'Separado Usuario 1', 'type' => 'separated_user'),
-			array('slug' => 'user_2_separated', 'name' => 'Separado Usuario 2', 'type' => 'separated_user'),
+			array( 'slug' => 'cuenta-comun', 'name' => 'Cuenta común', 'type' => 'common', 'display_order' => 1 ),
+			array( 'slug' => 'cuenta-personal-usuario-1', 'name' => 'Cuenta personal Usuario 1', 'type' => 'personal', 'display_order' => 2 ),
+			array( 'slug' => 'cuenta-personal-usuario-2', 'name' => 'Cuenta personal Usuario 2', 'type' => 'personal', 'display_order' => 3 ),
+			array( 'slug' => 'cuenta-ahorro', 'name' => 'Cuenta ahorro opcional', 'type' => 'savings', 'display_order' => 4 ),
+			array( 'slug' => 'cuenta-ajuste', 'name' => 'Cuenta ajuste opcional', 'type' => 'adjustment', 'display_order' => 5 ),
 		);
 
 		foreach ( $default_accounts as $account ) {
@@ -143,10 +194,34 @@ class Installer {
 					array_merge(
 						$account,
 						array(
-							'status'     => 'active',
-							'created_at' => $now,
-							'updated_at' => $now,
+							'status'          => 'active',
+							'is_visible'      => 1,
+							'allow_manual'    => 1,
+							'monthly_process' => 1,
+							'created_at'      => $now,
+							'updated_at'      => $now,
 						)
+					)
+				);
+			}
+		}
+
+		$default_categories = array( 'Supermercado', 'Hogar', 'Transporte', 'Gasolina', 'Hijos', 'Salud', 'Ocio', 'Suscripciones', 'Formación', 'Deuda', 'Ahorro', 'Ajuste', 'Imprevistos', 'Ropa', 'Tecnología' );
+		foreach ( $default_categories as $index => $name ) {
+			$slug = sanitize_title( $name );
+			$exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$categories_table} WHERE slug = %s", $slug ) );
+			if ( ! $exists ) {
+				$wpdb->insert(
+					$categories_table,
+					array(
+						'slug'          => $slug,
+						'name'          => $name,
+						'color'         => '#2271b1',
+						'icon'          => 'money-alt',
+						'display_order' => $index + 1,
+						'active'        => 1,
+						'created_at'    => $now,
+						'updated_at'    => $now,
 					)
 				);
 			}

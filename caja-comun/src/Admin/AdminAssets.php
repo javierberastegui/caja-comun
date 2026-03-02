@@ -8,21 +8,18 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class AdminAssets {
 	public function enqueue( string $hook ): void {
-		$allowed_prefixes = array( 'caja-comun', 'ccf-' );
-
 		$should_load = false;
-		foreach ( $allowed_prefixes as $prefix ) {
+		foreach ( array( 'caja-comun', 'ccf-' ) as $prefix ) {
 			if ( false !== strpos( $hook, $prefix ) ) {
 				$should_load = true;
 				break;
 			}
 		}
-
 		if ( ! $should_load ) {
 			return;
 		}
-
 		wp_enqueue_style( 'ccf-admin', CCF_URL . 'assets/css/admin.css', array(), CCF_VERSION );
-		wp_enqueue_script( 'ccf-admin', CCF_URL . 'assets/js/admin.js', array(), CCF_VERSION, true );
+		wp_enqueue_script( 'chart-js', 'https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js', array(), '4.4.3', true );
+		wp_enqueue_script( 'ccf-admin', CCF_URL . 'assets/js/admin.js', array( 'chart-js' ), CCF_VERSION, true );
 	}
 }

@@ -1,0 +1,2 @@
+<div class="wrap ccf-admin-wrap"><h1>Justificantes</h1><p>Ver por transacción desde ?page=ccf-attachments&transaction_id=ID.</p>
+<table class="widefat striped"><thead><tr><th>ID</th><th>Tipo</th><th>MIME</th><th>Vista previa</th></tr></thead><tbody><?php foreach ( $attachments as $a ) : ?><tr><td><?php echo esc_html( $a['id'] ); ?></td><td><?php echo esc_html( $a['document_type'] ); ?></td><td><?php echo esc_html( $a['mime_type'] ); ?></td><td><a href="<?php echo esc_url( $a['url'] ); ?>" target="_blank">Abrir</a></td></tr><?php endforeach; ?></tbody></table></div>
