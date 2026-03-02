@@ -17,9 +17,9 @@ class TransactionsRepository {
 
 	public function insert( array $data ): int {
 		global $wpdb;
-		$table = $this->database_manager->table( 'transactions' );
+		$table            = $this->database_manager->table( 'transactions' );
 		$transaction_date = ! empty( $data['transaction_date'] ) ? $data['transaction_date'] : gmdate( 'Y-m-d' );
-		$payload = wp_parse_args(
+		$payload          = wp_parse_args(
 			$data,
 			array(
 				'month_key'              => substr( $transaction_date, 0, 7 ),
@@ -43,7 +43,7 @@ class TransactionsRepository {
 				'updated_at'             => $this->database_manager->now(),
 			)
 		);
-		$payload['amount'] = round( (float) $payload['amount'], 2 );
+		$payload['amount']           = round( (float) $payload['amount'], 2 );
 		$payload['transaction_date'] = $transaction_date;
 		$wpdb->insert( $table, $payload );
 		return (int) $wpdb->insert_id;
@@ -51,7 +51,7 @@ class TransactionsRepository {
 
 	public function update( int $id, array $data ): bool {
 		global $wpdb;
-		$table = $this->database_manager->table( 'transactions' );
+		$table              = $this->database_manager->table( 'transactions' );
 		$data['updated_at'] = $this->database_manager->now();
 		if ( isset( $data['amount'] ) ) {
 			$data['amount'] = round( (float) $data['amount'], 2 );
@@ -59,24 +59,52 @@ class TransactionsRepository {
 		return false !== $wpdb->update( $table, $data, array( 'id' => $id ) );
 	}
 
-	public function list( array $filters = array(), int $limit = 100 ): array {
+	public function find( int $id ): ?array {
 		global $wpdb;
 		$table = $this->database_manager->table( 'transactions' );
-		$where = array( '1=1' );
+		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ), ARRAY_A );
+
+		return $row ?: null;
+	}
+
+	public function delete( int $id ): bool {
+		global $wpdb;
+		$table = $this->database_manager->table( 'transactions' );
+
+		return (bool) $wpdb->delete( $table, array( 'id' => $id ), array( '%d' ) );
+	}
+
+	public function list( array $filters = array(), int $limit = 100 ): array {
+		global $wpdb;
+		$table             = $this->database_manager->table( 'transactions' );
+		$where             = array( '1=1' );
 		$attachments_table = $this->database_manager->table( 'transaction_attachments' );
 
-		$map = array(
-			'month_key' => 't.month_key', 'user_id' => 't.created_by', 'account_id' => 't.source_account_id', 'category_id' => 't.category_id', 'status' => 't.status', 'reviewed' => 't.reviewed', 'type' => 't.type',
-		);
-		foreach ( $map as $key => $column ) {
-			if ( '' !== (string) ( $filters[ $key ] ?? '' ) ) {
-				$where[] = $wpdb->prepare( "{$column} = %s", $filters[ $key ] );
-			}
+		if ( ! empty( $filters['month_key'] ) ) {
+			$where[] = $wpdb->prepare( 't.month_key = %s', sanitize_text_field( $filters['month_key'] ) );
 		}
-		if ( isset( $filters['year'] ) && '' !== $filters['year'] ) {
+		if ( ! empty( $filters['year'] ) ) {
 			$where[] = $wpdb->prepare( 't.month_key LIKE %s', sanitize_text_field( $filters['year'] ) . '-%' );
 		}
-		if ( isset( $filters['has_attachment'] ) && '' !== $filters['has_attachment'] ) {
+		if ( ! empty( $filters['account_id'] ) ) {
+			$where[] = $wpdb->prepare( '(t.source_account_id = %d OR t.destination_account_id = %d)', (int) $filters['account_id'], (int) $filters['account_id'] );
+		}
+		if ( ! empty( $filters['category_id'] ) ) {
+			$where[] = $wpdb->prepare( 't.category_id = %d', (int) $filters['category_id'] );
+		}
+		if ( '' !== (string) ( $filters['status'] ?? '' ) ) {
+			$where[] = $wpdb->prepare( 't.status = %s', sanitize_key( $filters['status'] ) );
+		}
+		if ( '' !== (string) ( $filters['type'] ?? '' ) ) {
+			$where[] = $wpdb->prepare( 't.type = %s', sanitize_key( $filters['type'] ) );
+		}
+		if ( '' !== (string) ( $filters['reviewed'] ?? '' ) ) {
+			$where[] = $wpdb->prepare( 't.reviewed = %d', ! empty( $filters['reviewed'] ) ? 1 : 0 );
+		}
+		if ( ! empty( $filters['user_id'] ) ) {
+			$where[] = $wpdb->prepare( 't.created_by = %d', (int) $filters['user_id'] );
+		}
+		if ( isset( $filters['has_attachment'] ) && '' !== (string) $filters['has_attachment'] ) {
 			$where[] = 't.id ' . ( (int) $filters['has_attachment'] ? 'IN' : 'NOT IN' ) . " (SELECT transaction_id FROM {$attachments_table})";
 		}
 
@@ -90,7 +118,7 @@ class TransactionsRepository {
 
 	public function review_queue( string $month_key ): array {
 		global $wpdb;
-		$table = $this->database_manager->table( 'transactions' );
+		$table       = $this->database_manager->table( 'transactions' );
 		$attachments = $this->database_manager->table( 'transaction_attachments' );
 		return $wpdb->get_results(
 			$wpdb->prepare(

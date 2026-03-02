@@ -26,6 +26,14 @@ class CategoriesRepository {
 		return $wpdb->get_results( "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where ) . ' ORDER BY display_order ASC, name ASC', ARRAY_A );
 	}
 
+	public function find( int $id ): ?array {
+		global $wpdb;
+		$table = $this->database_manager->table( 'categories' );
+		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ), ARRAY_A );
+
+		return $row ?: null;
+	}
+
 	public function save( array $data ): int {
 		global $wpdb;
 		$table = $this->database_manager->table( 'categories' );
@@ -58,5 +66,12 @@ class CategoriesRepository {
 		global $wpdb;
 		$table = $this->database_manager->table( 'categories' );
 		return false !== $wpdb->update( $table, array( 'active' => $active ? 1 : 0, 'updated_at' => $this->database_manager->now() ), array( 'id' => $id ) );
+	}
+
+	public function delete( int $id ): bool {
+		global $wpdb;
+		$table = $this->database_manager->table( 'categories' );
+
+		return (bool) $wpdb->delete( $table, array( 'id' => $id ), array( '%d' ) );
 	}
 }

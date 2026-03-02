@@ -16,12 +16,14 @@ class MonthlyAllocationService {
 	private MonthlyIncomesRepository $incomes_repository;
 	private TransactionsRepository $transactions_repository;
 	private DatabaseManager $database_manager;
+	private AuditLogService $audit_log_service;
 
-	public function __construct( AccountsRepository $accounts_repository, MonthlyIncomesRepository $incomes_repository, TransactionsRepository $transactions_repository, DatabaseManager $database_manager ) {
+	public function __construct( AccountsRepository $accounts_repository, MonthlyIncomesRepository $incomes_repository, TransactionsRepository $transactions_repository, DatabaseManager $database_manager, AuditLogService $audit_log_service ) {
 		$this->accounts_repository = $accounts_repository;
 		$this->incomes_repository = $incomes_repository;
 		$this->transactions_repository = $transactions_repository;
 		$this->database_manager = $database_manager;
+		$this->audit_log_service = $audit_log_service;
 	}
 
 	public function preview( string $month_key, ?float $percent = null ): array {
@@ -64,6 +66,7 @@ class MonthlyAllocationService {
 		}
 
 		$this->register_automatic_transactions( $preview, $user_id );
+		$this->audit_log_service->log( 'monthly_allocation_run', 'monthly_allocation', $allocation_id, $preview );
 		return array_merge( $preview, array( 'allocation_id' => $allocation_id, 'status' => 'completed' ) );
 	}
 
