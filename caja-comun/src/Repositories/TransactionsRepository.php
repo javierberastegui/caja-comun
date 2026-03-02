@@ -80,24 +80,31 @@ class TransactionsRepository {
 		$where             = array( '1=1' );
 		$attachments_table = $this->database_manager->table( 'transaction_attachments' );
 
-		$map = array(
-			'month_key' => 't.month_key',
-			'user_id' => 't.created_by',
-			'account_id' => 't.source_account_id',
-			'category_id' => 't.category_id',
-			'status' => 't.status',
-			'reviewed' => 't.reviewed',
-			'type' => 't.type',
-		);
-		foreach ( $map as $key => $column ) {
-			if ( '' !== (string) ( $filters[ $key ] ?? '' ) ) {
-				$where[] = $wpdb->prepare( "{$column} = %s", $filters[ $key ] );
-			}
+		if ( ! empty( $filters['month_key'] ) ) {
+			$where[] = $wpdb->prepare( 't.month_key = %s', sanitize_text_field( $filters['month_key'] ) );
 		}
-		if ( isset( $filters['year'] ) && '' !== $filters['year'] ) {
+		if ( ! empty( $filters['year'] ) ) {
 			$where[] = $wpdb->prepare( 't.month_key LIKE %s', sanitize_text_field( $filters['year'] ) . '-%' );
 		}
-		if ( isset( $filters['has_attachment'] ) && '' !== $filters['has_attachment'] ) {
+		if ( ! empty( $filters['account_id'] ) ) {
+			$where[] = $wpdb->prepare( '(t.source_account_id = %d OR t.destination_account_id = %d)', (int) $filters['account_id'], (int) $filters['account_id'] );
+		}
+		if ( ! empty( $filters['category_id'] ) ) {
+			$where[] = $wpdb->prepare( 't.category_id = %d', (int) $filters['category_id'] );
+		}
+		if ( '' !== (string) ( $filters['status'] ?? '' ) ) {
+			$where[] = $wpdb->prepare( 't.status = %s', sanitize_key( $filters['status'] ) );
+		}
+		if ( '' !== (string) ( $filters['type'] ?? '' ) ) {
+			$where[] = $wpdb->prepare( 't.type = %s', sanitize_key( $filters['type'] ) );
+		}
+		if ( '' !== (string) ( $filters['reviewed'] ?? '' ) ) {
+			$where[] = $wpdb->prepare( 't.reviewed = %d', ! empty( $filters['reviewed'] ) ? 1 : 0 );
+		}
+		if ( ! empty( $filters['user_id'] ) ) {
+			$where[] = $wpdb->prepare( 't.created_by = %d', (int) $filters['user_id'] );
+		}
+		if ( isset( $filters['has_attachment'] ) && '' !== (string) $filters['has_attachment'] ) {
 			$where[] = 't.id ' . ( (int) $filters['has_attachment'] ? 'IN' : 'NOT IN' ) . " (SELECT transaction_id FROM {$attachments_table})";
 		}
 

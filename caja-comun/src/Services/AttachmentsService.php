@@ -9,12 +9,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class AttachmentsService {
-	private DatabaseManager $database_manager;
 	private array $allowed_mimes = array( 'image/jpeg', 'image/png', 'image/webp', 'application/pdf' );
 
-	public function __construct( DatabaseManager $database_manager ) {
-		$this->database_manager = $database_manager;
-	}
+	public function __construct( private DatabaseManager $database_manager, private AuditLogService $audit_log_service ) {}
 
 	public function create_from_upload( int $transaction_id, array $file, string $document_type ): array {
 		require_once ABSPATH . 'wp-admin/includes/file.php';
@@ -38,14 +35,24 @@ class AttachmentsService {
 			array(
 				'transaction_id' => $transaction_id,
 				'attachment_id'  => $attachment_id,
-				'document_type'  => sanitize_key( $document_type ),
+				'document_type'  => sanitize_key( $document_type ?: 'receipt' ),
 				'mime_type'      => $mime,
 				'created_by'     => get_current_user_id(),
 				'created_at'     => $this->database_manager->now(),
 			)
 		);
+		$id = (int) $wpdb->insert_id;
+		$this->audit_log_service->log( 'attachment_uploaded', 'attachment', $id, array( 'transaction_id' => $transaction_id, 'mime_type' => $mime ) );
 
-		return array( 'id' => (int) $wpdb->insert_id, 'attachment_id' => $attachment_id, 'url' => wp_get_attachment_url( $attachment_id ) );
+		return array( 'id' => $id, 'attachment_id' => $attachment_id, 'url' => wp_get_attachment_url( $attachment_id ) );
+	}
+
+	public function create_many_from_uploads( int $transaction_id, array $files, string $document_type ): array {
+		$created = array();
+		foreach ( $files as $file ) {
+			$created[] = $this->create_from_upload( $transaction_id, $file, $document_type );
+		}
+		return $created;
 	}
 
 	public function list_by_transaction( int $transaction_id ): array {
@@ -61,12 +68,13 @@ class AttachmentsService {
 	public function delete( int $id ): bool {
 		global $wpdb;
 		$table = $this->database_manager->table( 'transaction_attachments' );
-		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ), ARRAY_A );
+		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ), ARRAY_A );
 		if ( ! $row ) {
 			return false;
 		}
 		wp_delete_attachment( (int) $row['attachment_id'], true );
 		$wpdb->delete( $table, array( 'id' => $id ) );
+		$this->audit_log_service->log( 'attachment_deleted', 'attachment', $id, array( 'transaction_id' => (int) $row['transaction_id'] ) );
 		return true;
 	}
 }

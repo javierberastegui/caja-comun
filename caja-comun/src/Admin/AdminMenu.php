@@ -12,13 +12,14 @@ use CCF\Services\FeatureFlagsService;
 use CCF\Services\MonthlyAllocationService;
 use CCF\Services\NotesService;
 use CCF\Services\ReviewService;
+use CCF\Core\Capabilities;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
 class AdminMenu {
-	private const CAPABILITY = 'manage_options';
+	private const CAPABILITY = Capabilities::VIEW_DASHBOARD;
 	private const MENU_SLUG  = 'caja-comun';
 
 	public function __construct(

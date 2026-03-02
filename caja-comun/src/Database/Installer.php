@@ -96,19 +96,24 @@ class Installer {
 				KEY idx_month_key (month_key),
 				KEY idx_type (type),
 				KEY idx_reviewed (reviewed),
-				KEY idx_status (status)
+				KEY idx_status (status),
+				KEY idx_transaction_date (transaction_date),
+				KEY idx_source_account (source_account_id),
+				KEY idx_destination_account (destination_account_id),
+				KEY idx_category (category_id)
 			) $charset_collate;",
-			"CREATE TABLE {$this->database_manager->table( 'transaction_notes' )} (
+			"CREATE TABLE {$this->database_manager->table( 'notes' )} (
 				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 				transaction_id BIGINT UNSIGNED NOT NULL,
 				note_type VARCHAR(20) NOT NULL DEFAULT 'internal',
 				content LONGTEXT NOT NULL,
-				is_pending TINYINT(1) NOT NULL DEFAULT 0,
+				pending_review TINYINT(1) NOT NULL DEFAULT 0,
 				created_by BIGINT UNSIGNED NOT NULL,
 				created_at DATETIME NOT NULL,
 				updated_at DATETIME NOT NULL,
 				PRIMARY KEY (id),
-				KEY idx_transaction_id (transaction_id)
+				KEY idx_transaction_id (transaction_id),
+				KEY idx_pending_review (pending_review)
 			) $charset_collate;",
 			"CREATE TABLE {$this->database_manager->table( 'transaction_attachments' )} (
 				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
