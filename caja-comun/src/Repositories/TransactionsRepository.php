@@ -17,9 +17,9 @@ class TransactionsRepository {
 
 	public function insert( array $data ): int {
 		global $wpdb;
-		$table = $this->database_manager->table( 'transactions' );
+		$table            = $this->database_manager->table( 'transactions' );
 		$transaction_date = ! empty( $data['transaction_date'] ) ? $data['transaction_date'] : gmdate( 'Y-m-d' );
-		$payload = wp_parse_args(
+		$payload          = wp_parse_args(
 			$data,
 			array(
 				'month_key'              => substr( $transaction_date, 0, 7 ),
@@ -43,7 +43,7 @@ class TransactionsRepository {
 				'updated_at'             => $this->database_manager->now(),
 			)
 		);
-		$payload['amount'] = round( (float) $payload['amount'], 2 );
+		$payload['amount']           = round( (float) $payload['amount'], 2 );
 		$payload['transaction_date'] = $transaction_date;
 		$wpdb->insert( $table, $payload );
 		return (int) $wpdb->insert_id;
@@ -51,7 +51,7 @@ class TransactionsRepository {
 
 	public function update( int $id, array $data ): bool {
 		global $wpdb;
-		$table = $this->database_manager->table( 'transactions' );
+		$table              = $this->database_manager->table( 'transactions' );
 		$data['updated_at'] = $this->database_manager->now();
 		if ( isset( $data['amount'] ) ) {
 			$data['amount'] = round( (float) $data['amount'], 2 );
@@ -59,14 +59,35 @@ class TransactionsRepository {
 		return false !== $wpdb->update( $table, $data, array( 'id' => $id ) );
 	}
 
-	public function list( array $filters = array(), int $limit = 100 ): array {
+	public function find( int $id ): ?array {
 		global $wpdb;
 		$table = $this->database_manager->table( 'transactions' );
-		$where = array( '1=1' );
+		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ), ARRAY_A );
+
+		return $row ?: null;
+	}
+
+	public function delete( int $id ): bool {
+		global $wpdb;
+		$table = $this->database_manager->table( 'transactions' );
+
+		return (bool) $wpdb->delete( $table, array( 'id' => $id ), array( '%d' ) );
+	}
+
+	public function list( array $filters = array(), int $limit = 100 ): array {
+		global $wpdb;
+		$table             = $this->database_manager->table( 'transactions' );
+		$where             = array( '1=1' );
 		$attachments_table = $this->database_manager->table( 'transaction_attachments' );
 
 		$map = array(
-			'month_key' => 't.month_key', 'user_id' => 't.created_by', 'account_id' => 't.source_account_id', 'category_id' => 't.category_id', 'status' => 't.status', 'reviewed' => 't.reviewed', 'type' => 't.type',
+			'month_key' => 't.month_key',
+			'user_id' => 't.created_by',
+			'account_id' => 't.source_account_id',
+			'category_id' => 't.category_id',
+			'status' => 't.status',
+			'reviewed' => 't.reviewed',
+			'type' => 't.type',
 		);
 		foreach ( $map as $key => $column ) {
 			if ( '' !== (string) ( $filters[ $key ] ?? '' ) ) {
@@ -90,7 +111,7 @@ class TransactionsRepository {
 
 	public function review_queue( string $month_key ): array {
 		global $wpdb;
-		$table = $this->database_manager->table( 'transactions' );
+		$table       = $this->database_manager->table( 'transactions' );
 		$attachments = $this->database_manager->table( 'transaction_attachments' );
 		return $wpdb->get_results(
 			$wpdb->prepare(

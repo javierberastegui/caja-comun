@@ -35,6 +35,13 @@ class AccountsRepository {
 		return $row ?: null;
 	}
 
+	public function delete( int $id ): bool {
+		global $wpdb;
+		$table = $this->database_manager->table( 'accounts' );
+
+		return (bool) $wpdb->delete( $table, array( 'id' => $id ), array( '%d' ) );
+	}
+
 	public function find_by_slug( string $slug ): ?array {
 		global $wpdb;
 		$table = $this->database_manager->table( 'accounts' );

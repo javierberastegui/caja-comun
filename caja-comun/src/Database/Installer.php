@@ -228,8 +228,13 @@ class Installer {
 		}
 
 		$defaults = array(
-			'ccf_separation_percent' => '10.00',
-			'ccf_residue_strategy'   => 'to_common_budget',
+			'ccf_separation_percent'   => '10.00',
+			'ccf_residue_strategy'     => 'to_common_budget',
+			'enable_transactions_ui'   => '0',
+			'enable_accounts_ui'       => '0',
+			'enable_categories_ui'     => '0',
+			'enable_attachments_ui'    => '0',
+			'enable_review_ui'         => '0',
 		);
 
 		foreach ( $defaults as $setting_key => $setting_value ) {
