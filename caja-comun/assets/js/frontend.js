@@ -200,14 +200,17 @@
 		return '';
 	};
 
-	const normalizeBackendError = (message) => {
+	const normalizeTransactionError = (message) => {
 		const msg = String(message || '').toLowerCase();
-		if (msg.includes('categor')) return 'Debes seleccionar una categoría.';
+		if (msg.includes('seleccionar una categoría')) return 'Debes seleccionar una categoría.';
+		if (msg.includes('missing_category')) return 'Debes seleccionar una categoría.';
 		if (msg.includes('cuenta común')) return 'No hay una cuenta común activa. Crea una en administración.';
 		if (msg.includes('common')) return 'Solo se pueden usar cuentas comunes.';
 		if (msg.includes('amount') || msg.includes('importe')) return 'El importe no es válido.';
 		return message || 'No se pudo guardar el movimiento.';
 	};
+
+	const normalizeCategoryError = (message) => message || 'No se pudo crear la categoría.';
 
 	const loadCatalogs = async () => {
 		const [acc, cat] = await Promise.all([
@@ -266,7 +269,7 @@
 			setFeedback(categoryCreateFeedback, 'Categoría creada correctamente.');
 			setFeedback(modalFeedback, '');
 		} catch (err) {
-			setFeedback(categoryCreateFeedback, normalizeBackendError(err.message), true);
+			setFeedback(categoryCreateFeedback, normalizeCategoryError(err.message), true);
 		}
 	});
 
@@ -304,7 +307,7 @@
 			await refreshAll();
 			setFeedback(tableFeedback, 'Movimiento guardado correctamente.');
 		} catch (err) {
-			setFeedback(modalFeedback, normalizeBackendError(err.message), true);
+			setFeedback(modalFeedback, normalizeTransactionError(err.message), true);
 		}
 	});
 
@@ -349,7 +352,7 @@
 			monthInput.value = state.currentMonth;
 			await refreshAll();
 		} catch (err) {
-			setFeedback(tableFeedback, normalizeBackendError(err.message), true);
+			setFeedback(tableFeedback, normalizeTransactionError(err.message), true);
 		}
 	})();
 })();
