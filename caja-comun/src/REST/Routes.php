@@ -48,7 +48,7 @@ class Routes {
 	public function register(): void {
 		register_rest_route( self::NAMESPACE, '/accounts', array(
 			array( 'methods' => 'GET', 'callback' => fn( WP_REST_Request $r ) => new WP_REST_Response( array( 'data' => $this->accounts_repository->get_all( $r->get_params() ) ) ), 'permission_callback' => fn( WP_REST_Request $r ) => $this->can_admin_or_frontend( Capabilities::MANAGE_ACCOUNTS, false, $r ) ),
-			array( 'methods' => 'POST', 'callback' => array( $this, 'handle_create_account' ), 'permission_callback' => fn( WP_REST_Request $r ) => $this->can( Capabilities::MANAGE_ACCOUNTS ) ),
+			array( 'methods' => 'POST', 'callback' => array( $this, 'handle_create_account' ), 'permission_callback' => fn( WP_REST_Request $r ) => $this->can_admin_or_frontend( Capabilities::MANAGE_ACCOUNTS, true, $r ) ),
 		) );
 		register_rest_route( self::NAMESPACE, '/accounts/(?P<id>\d+)', array(
 			array( 'methods' => 'GET', 'callback' => array( $this, 'handle_get_account' ), 'permission_callback' => fn( WP_REST_Request $r ) => $this->can_admin_or_frontend( Capabilities::MANAGE_ACCOUNTS, false, $r ) ),
@@ -57,7 +57,7 @@ class Routes {
 		) );
 		register_rest_route( self::NAMESPACE, '/categories', array(
 			array( 'methods' => 'GET', 'callback' => fn( WP_REST_Request $r ) => new WP_REST_Response( array( 'data' => $this->categories_repository->list( $r->get_params() ) ) ), 'permission_callback' => fn( WP_REST_Request $r ) => $this->can_admin_or_frontend( Capabilities::MANAGE_CATEGORIES, false, $r ) ),
-			array( 'methods' => 'POST', 'callback' => array( $this, 'create_category' ), 'permission_callback' => fn() => $this->can( Capabilities::MANAGE_CATEGORIES ) ),
+			array( 'methods' => 'POST', 'callback' => array( $this, 'create_category' ), 'permission_callback' => fn( WP_REST_Request $r ) => $this->can_admin_or_frontend( Capabilities::MANAGE_CATEGORIES, true, $r ) ),
 		) );
 		register_rest_route( self::NAMESPACE, '/categories/(?P<id>\d+)', array(
 			array( 'methods' => 'GET', 'callback' => array( $this, 'get_category' ), 'permission_callback' => fn( WP_REST_Request $r ) => $this->can_admin_or_frontend( Capabilities::MANAGE_CATEGORIES, false, $r ) ),

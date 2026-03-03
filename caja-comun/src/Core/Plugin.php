@@ -40,7 +40,7 @@ class Plugin {
 		$notes_service            = new NotesService( $database_manager, $audit_log_service );
 		$accounts_service         = new AccountsService( $accounts_repository, $audit_log_service );
 		$categories_service       = new CategoriesService( $categories_repository, $audit_log_service );
-		$transactions_service     = new TransactionsService( $transactions_repository, $audit_log_service );
+		$transactions_service     = new TransactionsService( $transactions_repository, $audit_log_service, $accounts_repository, $categories_repository );
 		$review_service           = new ReviewService( $transactions_repository );
 		$charts_service           = new ChartsService( $incomes_repository, $transactions_repository, $database_manager );
 		$allocation_service       = new MonthlyAllocationService( $accounts_repository, $incomes_repository, $transactions_repository, $database_manager, $audit_log_service );

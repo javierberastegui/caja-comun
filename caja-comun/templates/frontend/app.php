@@ -66,8 +66,36 @@
 					</select>
 				</label>
 				<label>Concepto<input type="text" name="description" required></label>
-				<label>Categoría<select name="category_id" id="ccf-category-select"></select></label>
-				<label>Cuenta<select name="source_account_id" id="ccf-source-account"></select></label>
+				<div class="ccf-field-block">
+					<label>Categoría<select name="category_id" id="ccf-category-select"></select></label>
+					<p id="ccf-category-empty" class="ccf-field-empty" hidden>No hay categorías creadas todavía.</p>
+					<div class="ccf-inline-actions">
+						<button type="button" id="ccf-open-create-category" class="ccf-btn ccf-btn-soft">+ Nueva categoría</button>
+					</div>
+					<div id="ccf-create-category-wrap" class="ccf-inline-create" hidden>
+						<label>Nueva categoría<input type="text" id="ccf-create-category-name" placeholder="Ej: Alimentación"></label>
+						<div class="ccf-inline-actions">
+							<button type="button" id="ccf-create-category-submit" class="ccf-btn ccf-btn-primary">Guardar categoría</button>
+							<button type="button" id="ccf-create-category-cancel" class="ccf-btn ccf-btn-soft">Cancelar</button>
+						</div>
+						<p id="ccf-category-create-feedback" class="ccf-feedback" role="status"></p>
+					</div>
+				</div>
+				<div class="ccf-field-block">
+					<label>Cuenta<select name="source_account_id" id="ccf-source-account"></select></label>
+					<p id="ccf-account-empty" class="ccf-field-empty" hidden>No hay cuentas creadas todavía.</p>
+					<div class="ccf-inline-actions">
+						<button type="button" id="ccf-open-create-account" class="ccf-btn ccf-btn-soft">+ Nueva cuenta</button>
+					</div>
+					<div id="ccf-create-account-wrap" class="ccf-inline-create" hidden>
+						<label>Nueva cuenta<input type="text" id="ccf-create-account-name" placeholder="Ej: Cuenta principal"></label>
+						<div class="ccf-inline-actions">
+							<button type="button" id="ccf-create-account-submit" class="ccf-btn ccf-btn-primary">Guardar cuenta</button>
+							<button type="button" id="ccf-create-account-cancel" class="ccf-btn ccf-btn-soft">Cancelar</button>
+						</div>
+						<p id="ccf-account-create-feedback" class="ccf-feedback" role="status"></p>
+					</div>
+				</div>
 				<label>Importe<input type="number" name="amount" min="0.01" step="0.01" required></label>
 				<label>Estado
 					<select name="status">

@@ -31,12 +31,26 @@
 	const modalTitle = document.getElementById('ccf-modal-title');
 	const categorySelect = document.getElementById('ccf-category-select');
 	const accountSelect = document.getElementById('ccf-source-account');
+	const categoryEmpty = document.getElementById('ccf-category-empty');
+	const accountEmpty = document.getElementById('ccf-account-empty');
+	const categoryWrap = document.getElementById('ccf-create-category-wrap');
+	const accountWrap = document.getElementById('ccf-create-account-wrap');
+	const categoryInput = document.getElementById('ccf-create-category-name');
+	const accountInput = document.getElementById('ccf-create-account-name');
+	const categoryCreateFeedback = document.getElementById('ccf-category-create-feedback');
+	const accountCreateFeedback = document.getElementById('ccf-account-create-feedback');
 
-	const fillSelect = (el, rows, placeholder) => {
+	const setFeedback = (el, msg, isError = false) => {
+		if (!el) return;
+		el.textContent = msg || '';
+		el.classList.toggle('is-error', isError);
+	};
+
+	const fillSelect = (el, rows, placeholder, emptyLabel, emptyNode) => {
 		el.innerHTML = '';
 		const defaultOpt = document.createElement('option');
 		defaultOpt.value = '';
-		defaultOpt.textContent = placeholder;
+		defaultOpt.textContent = rows.length ? placeholder : emptyLabel;
 		el.appendChild(defaultOpt);
 		rows.forEach((row) => {
 			const opt = document.createElement('option');
@@ -44,11 +58,12 @@
 			opt.textContent = row.name;
 			el.appendChild(opt);
 		});
+		if (emptyNode) emptyNode.hidden = rows.length > 0;
 	};
 
-	const setFeedback = (el, msg, isError = false) => {
-		el.textContent = msg || '';
-		el.classList.toggle('is-error', isError);
+	const renderCatalogs = () => {
+		fillSelect(accountSelect, state.accounts, 'Selecciona cuenta', 'No hay cuentas creadas todavía', accountEmpty);
+		fillSelect(categorySelect, state.categories, 'Selecciona categoría', 'No hay categorías creadas todavía', categoryEmpty);
 	};
 
 	const renderKpis = (summary, budgetActual) => {
@@ -61,7 +76,6 @@
 	};
 
 	const destroyChart = (id) => { if (charts[id]) charts[id].destroy(); };
-
 	const toggleEmptyForChart = (canvasId, hasData) => {
 		const wrap = document.getElementById(canvasId).closest('.ccf-chart-card');
 		wrap.querySelector('.ccf-chart-empty').hidden = hasData;
@@ -176,7 +190,11 @@
 
 	const openModal = (tx) => {
 		movementForm.reset();
-		modalFeedback.textContent = '';
+		setFeedback(modalFeedback, '');
+		setFeedback(categoryCreateFeedback, '');
+		setFeedback(accountCreateFeedback, '');
+		categoryWrap.hidden = true;
+		accountWrap.hidden = true;
 		movementForm.id.value = tx?.id || '';
 		movementForm.transaction_date.value = tx?.transaction_date || `${state.currentMonth}-01`;
 		movementForm.type.value = tx?.type || 'expense';
@@ -189,8 +207,82 @@
 		modal.showModal();
 	};
 
+	const isCategoryRequired = (type) => ['expense', 'income'].includes(type);
+	const isAccountRequired = (type) => ['expense', 'income', 'transfer', 'adjustment'].includes(type);
+
+	const validateBeforeSave = (payload) => {
+		if (!payload.transaction_date) return 'Debes seleccionar una fecha.';
+		if (!payload.type) return 'Debes seleccionar un tipo de movimiento.';
+		if (!payload.description || payload.description.trim().length === 0) return 'Debes indicar un concepto.';
+		if (!payload.amount || Number(payload.amount) <= 0) return 'El importe no es válido.';
+		if (isCategoryRequired(payload.type) && !payload.category_id) return 'Debes seleccionar una categoría.';
+		if (isAccountRequired(payload.type) && !payload.source_account_id) return 'Debes seleccionar una cuenta.';
+		return '';
+	};
+
+	const normalizeBackendError = (message) => {
+		const msg = String(message || '').toLowerCase();
+		if (msg.includes('categor')) return 'Debes seleccionar una categoría.';
+		if (msg.includes('cuenta') || msg.includes('account')) return 'Debes seleccionar una cuenta.';
+		if (msg.includes('amount') || msg.includes('importe')) return 'El importe no es válido.';
+		return message || 'No se pudo guardar el movimiento.';
+	};
+
+	const loadCatalogs = async () => {
+		const [acc, cat] = await Promise.all([
+			api('accounts?status=active').catch(() => ({ data: [] })),
+			api('categories?active=1').catch(() => ({ data: [] }))
+		]);
+		state.accounts = acc.data || [];
+		state.categories = cat.data || [];
+		renderCatalogs();
+	};
+
 	document.getElementById('ccf-new-movement').addEventListener('click', () => openModal());
 	document.getElementById('ccf-modal-close').addEventListener('click', () => modal.close());
+	document.getElementById('ccf-open-create-category').addEventListener('click', () => { categoryWrap.hidden = false; categoryInput.focus(); });
+	document.getElementById('ccf-open-create-account').addEventListener('click', () => { accountWrap.hidden = false; accountInput.focus(); });
+	document.getElementById('ccf-create-category-cancel').addEventListener('click', () => { categoryWrap.hidden = true; setFeedback(categoryCreateFeedback, ''); });
+	document.getElementById('ccf-create-account-cancel').addEventListener('click', () => { accountWrap.hidden = true; setFeedback(accountCreateFeedback, ''); });
+
+	document.getElementById('ccf-create-category-submit').addEventListener('click', async () => {
+		const name = categoryInput.value.trim();
+		if (!name) {
+			setFeedback(categoryCreateFeedback, 'Escribe un nombre para la categoría.', true);
+			return;
+		}
+		try {
+			await api('categories', { method: 'POST', body: JSON.stringify({ name, active: 1 }) });
+			await loadCatalogs();
+			const created = state.categories.find((row) => row.name.toLowerCase() === name.toLowerCase());
+			if (created) movementForm.category_id.value = created.id;
+			categoryInput.value = '';
+			categoryWrap.hidden = true;
+			setFeedback(categoryCreateFeedback, 'Categoría creada correctamente.');
+		} catch (err) {
+			setFeedback(categoryCreateFeedback, normalizeBackendError(err.message), true);
+		}
+	});
+
+	document.getElementById('ccf-create-account-submit').addEventListener('click', async () => {
+		const name = accountInput.value.trim();
+		if (!name) {
+			setFeedback(accountCreateFeedback, 'Escribe un nombre para la cuenta.', true);
+			return;
+		}
+		try {
+			await api('accounts', { method: 'POST', body: JSON.stringify({ name, slug: name, type: 'common', status: 'active', is_visible: 1, allow_manual: 1, monthly_process: 1 }) });
+			await loadCatalogs();
+			const created = state.accounts.find((row) => row.name.toLowerCase() === name.toLowerCase());
+			if (created) movementForm.source_account_id.value = created.id;
+			accountInput.value = '';
+			accountWrap.hidden = true;
+			setFeedback(accountCreateFeedback, 'Cuenta creada correctamente.');
+		} catch (err) {
+			setFeedback(accountCreateFeedback, normalizeBackendError(err.message), true);
+		}
+	});
+
 	monthInput.addEventListener('change', () => {
 		state.currentMonth = monthInput.value;
 		refreshAll();
@@ -209,6 +301,11 @@
 			amount: fd.get('amount'),
 			status: fd.get('status')
 		};
+		const validationError = validateBeforeSave(payload);
+		if (validationError) {
+			setFeedback(modalFeedback, validationError, true);
+			return;
+		}
 		try {
 			const result = txId ? await api(`transactions/${txId}`, { method: 'PUT', body: JSON.stringify(payload) }) : await api('transactions', { method: 'POST', body: JSON.stringify(payload) });
 			const realId = txId || result.id;
@@ -221,8 +318,9 @@
 			setFeedback(modalFeedback, 'Movimiento guardado correctamente.');
 			modal.close();
 			await refreshAll();
+			setFeedback(tableFeedback, 'Movimiento guardado correctamente.');
 		} catch (err) {
-			setFeedback(modalFeedback, err.message, true);
+			setFeedback(modalFeedback, normalizeBackendError(err.message), true);
 		}
 	});
 
@@ -269,15 +367,11 @@
 
 	(async () => {
 		try {
-			const [acc, cat] = await Promise.all([api('accounts'), api('categories')]);
-			state.accounts = acc.data || [];
-			state.categories = cat.data || [];
-			fillSelect(accountSelect, state.accounts, 'Selecciona cuenta');
-			fillSelect(categorySelect, state.categories, 'Sin categoría');
+			await loadCatalogs();
 			monthInput.value = state.currentMonth;
 			await refreshAll();
 		} catch (err) {
-			setFeedback(tableFeedback, err.message, true);
+			setFeedback(tableFeedback, normalizeBackendError(err.message), true);
 		}
 	})();
 })();

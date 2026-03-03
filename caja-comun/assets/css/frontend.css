@@ -95,3 +95,29 @@
 	.ccf-header h2 { font-size: 1.45rem; }
 	#ccf-transactions-table { min-width: 760px; }
 }
+
+.ccf-field-block {
+	display: grid;
+	gap: .45rem;
+}
+
+.ccf-field-empty {
+	margin: 0;
+	font-size: .85rem;
+	color: #fcd34d;
+}
+
+.ccf-inline-actions {
+	display: flex;
+	gap: .5rem;
+	flex-wrap: wrap;
+}
+
+.ccf-inline-create {
+	display: grid;
+	gap: .45rem;
+	padding: .55rem;
+	border: 1px dashed rgba(148, 163, 184, .5);
+	border-radius: 12px;
+	background: rgba(15, 23, 42, .55);
+}
