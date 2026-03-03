@@ -34,6 +34,14 @@ class CategoriesRepository {
 		return $row ?: null;
 	}
 
+	public function find_by_name( string $name ): ?array {
+		global $wpdb;
+		$table = $this->database_manager->table( 'categories' );
+		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE name = %s LIMIT 1", sanitize_text_field( $name ) ), ARRAY_A );
+
+		return $row ?: null;
+	}
+
 	public function save( array $data ): int {
 		global $wpdb;
 		$table = $this->database_manager->table( 'categories' );
