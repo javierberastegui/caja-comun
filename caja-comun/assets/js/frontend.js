@@ -2,29 +2,12 @@
 	const cfg = window.CCF_FRONTEND || {};
 	const api = async (path, options = {}) => {
 		const headers = Object.assign({'Content-Type':'application/json'}, options.headers || {});
-		if (cfg.token) { headers['X-CCF-Session'] = cfg.token; }
-		if (cfg.nonce) { headers['X-CCF-Nonce'] = cfg.nonce; }
+		if (cfg.nonce) { headers['X-WP-Nonce'] = cfg.nonce; }
 		const res = await fetch((cfg.apiBase || '') + path, Object.assign({}, options, { headers }));
 		const data = await res.json().catch(() => ({}));
 		if (!res.ok) { throw new Error(data.message || data.error || 'Error'); }
 		return data;
 	};
-
-	const loginForm = document.getElementById('ccf-login-form');
-	if (loginForm) {
-		loginForm.addEventListener('submit', async (e) => {
-			e.preventDefault();
-			const fd = new FormData(loginForm);
-			const feedback = document.getElementById('ccf-login-feedback');
-			try {
-				const data = await api('frontend/login', { method:'POST', body: JSON.stringify({ password: fd.get('password') }) });
-				window.CCF_FRONTEND.token = data.token;
-				window.CCF_FRONTEND.nonce = data.nonce;
-				feedback.textContent = 'Acceso correcto. Redirigiendo...';
-				window.location.href = cfg.redirect || window.location.href;
-			} catch (err) { feedback.textContent = err.message; }
-		});
-	}
 
 	const fmt = (n) => `${Number(n || 0).toFixed(2)} €`;
 	const dashboard = document.querySelector('[data-ccf-view="dashboard"]');
@@ -74,7 +57,7 @@
 				if (files.length) {
 					const data = new FormData();
 					Array.from(files).forEach(f => data.append('files[]', f));
-					await fetch((cfg.apiBase || '') + `transactions/${saved.id}/attachments`, { method:'POST', headers:{'X-CCF-Session':cfg.token,'X-CCF-Nonce':cfg.nonce}, body:data });
+					await fetch((cfg.apiBase || '') + `transactions/${saved.id}/attachments`, { method:'POST', headers:{'X-WP-Nonce':cfg.nonce}, body:data });
 				}
 				feedback.textContent = 'Transacción guardada.';
 			} catch (err) { feedback.textContent = err.message; }

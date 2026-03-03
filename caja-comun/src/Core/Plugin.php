@@ -18,8 +18,6 @@ use CCF\Services\AuditLogService;
 use CCF\Services\CategoriesService;
 use CCF\Services\ChartsService;
 use CCF\Services\DashboardService;
-use CCF\Services\FeatureFlagsService;
-use CCF\Services\FrontendSessionService;
 use CCF\Services\MonthlyAllocationService;
 use CCF\Services\NotesService;
 use CCF\Services\ReviewService;
@@ -47,17 +45,14 @@ class Plugin {
 		$charts_service           = new ChartsService( $incomes_repository, $transactions_repository, $database_manager );
 		$allocation_service       = new MonthlyAllocationService( $accounts_repository, $incomes_repository, $transactions_repository, $database_manager, $audit_log_service );
 		$dashboard_service        = new DashboardService( $incomes_repository, $transactions_repository, $database_manager, $charts_service );
-		$feature_flags_service    = new FeatureFlagsService( $settings_repository );
-		$session_service         = new FrontendSessionService( $settings_repository );
-		$admin_menu              = new AdminMenu( $dashboard_service, $incomes_repository, $allocation_service, $accounts_repository, $categories_repository, $transactions_repository, $attachments_service, $notes_service, $review_service, $feature_flags_service, $settings_repository, $session_service );
+		$admin_menu              = new AdminMenu( $dashboard_service, $incomes_repository, $allocation_service, $accounts_repository, $categories_repository, $transactions_repository, $attachments_service, $notes_service, $review_service, $settings_repository );
 		$admin_assets            = new AdminAssets();
-		$shortcodes              = new Shortcodes( $dashboard_service, $session_service, $settings_repository );
-		$routes                  = new Routes( $accounts_repository, $categories_repository, $incomes_repository, $transactions_repository, $allocation_service, $dashboard_service, $attachments_service, $notes_service, $review_service, $charts_service, $accounts_service, $categories_service, $transactions_service, $audit_log_service, $session_service );
+		$shortcodes              = new Shortcodes( $dashboard_service );
+		$routes                  = new Routes( $accounts_repository, $categories_repository, $incomes_repository, $transactions_repository, $allocation_service, $dashboard_service, $attachments_service, $notes_service, $review_service, $charts_service, $accounts_service, $categories_service, $transactions_service, $audit_log_service );
 
 		add_action( 'admin_menu', array( $admin_menu, 'register' ) );
 		add_action( 'admin_enqueue_scripts', array( $admin_assets, 'enqueue' ) );
 		add_action( 'init', array( $shortcodes, 'register' ) );
-		add_action( 'template_redirect', array( $session_service, 'maybe_redirect_to_login' ) );
 		add_action( 'rest_api_init', array( $routes, 'register' ) );
 	}
 }

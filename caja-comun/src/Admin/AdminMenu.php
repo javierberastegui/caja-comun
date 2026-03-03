@@ -10,8 +10,6 @@ use CCF\Repositories\SettingsRepository;
 use CCF\Repositories\TransactionsRepository;
 use CCF\Services\AttachmentsService;
 use CCF\Services\DashboardService;
-use CCF\Services\FeatureFlagsService;
-use CCF\Services\FrontendSessionService;
 use CCF\Services\MonthlyAllocationService;
 use CCF\Services\NotesService;
 use CCF\Services\ReviewService;
@@ -34,9 +32,7 @@ class AdminMenu {
 		private AttachmentsService $attachments_service,
 		private NotesService $notes_service,
 		private ReviewService $review_service,
-		private FeatureFlagsService $feature_flags_service,
-		private SettingsRepository $settings_repository,
-		private FrontendSessionService $session_service
+		private SettingsRepository $settings_repository
 	) {}
 
 	public function register(): void {
@@ -46,21 +42,11 @@ class AdminMenu {
 		add_submenu_page( self::MENU_SLUG, 'Asignación Mensual', 'Asignación Mensual', self::CAPABILITY, 'ccf-allocations', array( $this, 'render_monthly_allocation' ) );
 		add_submenu_page( self::MENU_SLUG, 'Ajustes', 'Ajustes', self::CAPABILITY, 'ccf-settings', array( $this, 'render_settings' ) );
 
-		if ( $this->feature_flags_service->is_enabled( 'enable_transactions_ui' ) ) {
-			add_submenu_page( self::MENU_SLUG, 'Transacciones', 'Transacciones', self::CAPABILITY, 'ccf-transactions', array( $this, 'render_transactions' ) );
-		}
-		if ( $this->feature_flags_service->is_enabled( 'enable_accounts_ui' ) ) {
-			add_submenu_page( self::MENU_SLUG, 'Cuentas', 'Cuentas', self::CAPABILITY, 'ccf-accounts', array( $this, 'render_accounts' ) );
-		}
-		if ( $this->feature_flags_service->is_enabled( 'enable_categories_ui' ) ) {
-			add_submenu_page( self::MENU_SLUG, 'Categorías', 'Categorías', self::CAPABILITY, 'ccf-categories', array( $this, 'render_categories' ) );
-		}
-		if ( $this->feature_flags_service->is_enabled( 'enable_attachments_ui' ) ) {
-			add_submenu_page( self::MENU_SLUG, 'Justificantes', 'Justificantes', self::CAPABILITY, 'ccf-attachments', array( $this, 'render_attachments' ) );
-		}
-		if ( $this->feature_flags_service->is_enabled( 'enable_review_ui' ) ) {
-			add_submenu_page( self::MENU_SLUG, 'Revisión', 'Revisión de movimientos', self::CAPABILITY, 'ccf-review', array( $this, 'render_review' ) );
-		}
+		add_submenu_page( self::MENU_SLUG, 'Transacciones', 'Transacciones', self::CAPABILITY, 'ccf-transactions', array( $this, 'render_transactions' ) );
+		add_submenu_page( self::MENU_SLUG, 'Cuentas', 'Cuentas', self::CAPABILITY, 'ccf-accounts', array( $this, 'render_accounts' ) );
+		add_submenu_page( self::MENU_SLUG, 'Categorías', 'Categorías', self::CAPABILITY, 'ccf-categories', array( $this, 'render_categories' ) );
+		add_submenu_page( self::MENU_SLUG, 'Justificantes', 'Justificantes', self::CAPABILITY, 'ccf-attachments', array( $this, 'render_attachments' ) );
+		add_submenu_page( self::MENU_SLUG, 'Revisión', 'Revisión de movimientos', self::CAPABILITY, 'ccf-review', array( $this, 'render_review' ) );
 	}
 	// ... existing methods unchanged below
 	public function render_dashboard(): void { $month_key = sanitize_text_field( wp_unslash( $_GET['month_key'] ?? gmdate( 'Y-m' ) ) ); $summary = $this->dashboard_service->month_summary( $month_key ); require CCF_PATH . 'templates/admin/dashboard.php'; }
@@ -70,15 +56,8 @@ class AdminMenu {
 	public function render_settings(): void {
 		if ( isset( $_POST['ccf_save_frontend_settings'] ) ) {
 			check_admin_referer( 'ccf_save_frontend_settings_action' );
-			$this->settings_repository->set( 'ccf_enable_frontend_app', ! empty( $_POST['ccf_enable_frontend_app'] ) ? '1' : '0' );
-			$this->settings_repository->set( 'ccf_frontend_session_hours', (string) max( 1, (int) $_POST['ccf_frontend_session_hours'] ) );
-			$this->settings_repository->set( 'ccf_frontend_profile_pin_enabled', ! empty( $_POST['ccf_frontend_profile_pin_enabled'] ) ? '1' : '0' );
 			$this->settings_repository->set( 'ccf_frontend_profile_a_name', sanitize_text_field( wp_unslash( $_POST['ccf_frontend_profile_a_name'] ?? 'Perfil A' ) ) );
 			$this->settings_repository->set( 'ccf_frontend_profile_b_name', sanitize_text_field( wp_unslash( $_POST['ccf_frontend_profile_b_name'] ?? 'Perfil B' ) ) );
-			$password = (string) wp_unslash( $_POST['ccf_frontend_password'] ?? '' );
-			if ( '' !== trim( $password ) ) {
-				$this->session_service->set_frontend_password( $password );
-			}
 		}
 		require CCF_PATH . 'templates/admin/settings.php';
 	}

@@ -13,7 +13,6 @@ use CCF\Services\AuditLogService;
 use CCF\Services\CategoriesService;
 use CCF\Services\ChartsService;
 use CCF\Services\DashboardService;
-use CCF\Services\FrontendSessionService;
 use CCF\Services\MonthlyAllocationService;
 use CCF\Services\NotesService;
 use CCF\Services\ReviewService;
@@ -43,15 +42,10 @@ class Routes {
 		private AccountsService $accounts_service,
 		private CategoriesService $categories_service,
 		private TransactionsService $transactions_service,
-		private AuditLogService $audit_log_service,
-		private FrontendSessionService $session_service
+		private AuditLogService $audit_log_service
 	) {}
 
 	public function register(): void {
-		register_rest_route( self::NAMESPACE, '/frontend/login', array( 'methods' => 'POST', 'callback' => array( $this, 'frontend_login' ), 'permission_callback' => '__return_true' ) );
-		register_rest_route( self::NAMESPACE, '/frontend/logout', array( 'methods' => 'POST', 'callback' => array( $this, 'frontend_logout' ), 'permission_callback' => '__return_true' ) );
-		register_rest_route( self::NAMESPACE, '/frontend/session', array( 'methods' => 'GET', 'callback' => array( $this, 'frontend_session' ), 'permission_callback' => '__return_true' ) );
-
 		register_rest_route( self::NAMESPACE, '/accounts', array(
 			array( 'methods' => 'GET', 'callback' => fn( WP_REST_Request $r ) => new WP_REST_Response( array( 'data' => $this->accounts_repository->get_all( $r->get_params() ) ) ), 'permission_callback' => fn( WP_REST_Request $r ) => $this->can_admin_or_frontend( Capabilities::MANAGE_ACCOUNTS, false, $r ) ),
 			array( 'methods' => 'POST', 'callback' => array( $this, 'handle_create_account' ), 'permission_callback' => fn( WP_REST_Request $r ) => $this->can( Capabilities::MANAGE_ACCOUNTS ) ),
@@ -102,23 +96,15 @@ class Routes {
 
 	private function can( string $capability ): bool { return current_user_can( $capability ) || current_user_can( 'manage_options' ); }
 	private function can_admin_or_frontend( string $capability, bool $needs_nonce, WP_REST_Request $request ): bool {
-		if ( $this->can( $capability ) ) { return true; }
-		$session = $this->session_service->get_current_session();
-		if ( ! $session ) { return false; }
-		$nonce = $request->get_header( 'x-ccf-nonce' );
-		return ! $needs_nonce || $this->session_service->require_action_nonce( $request->get_method(), $nonce );
-	}
-
-	public function frontend_login( WP_REST_Request $request ) {
-		$result = $this->session_service->login( (string) $request->get_param( 'password' ) );
-		if ( empty( $result['ok'] ) ) {
-			$status = 'rate_limited' === ( $result['error'] ?? '' ) ? 429 : 401;
-			return new WP_Error( 'ccf_front_login_failed', 'Acceso inválido o bloqueado temporalmente.', array( 'status' => $status, 'retry_after' => $result['retry_after'] ?? 0 ) );
+		if ( $this->can( $capability ) ) {
+			return true;
 		}
-		return new WP_REST_Response( $result );
+		if ( ! $needs_nonce ) {
+			return true;
+		}
+		$nonce = (string) $request->get_header( 'x-wp-nonce' );
+		return '' !== $nonce && (bool) wp_verify_nonce( $nonce, 'wp_rest' );
 	}
-	public function frontend_logout( WP_REST_Request $request ): WP_REST_Response { $this->session_service->logout( (string) $request->get_header( 'x-ccf-session' ) ); return new WP_REST_Response( array( 'ok' => true ) ); }
-	public function frontend_session(): WP_REST_Response { $session = $this->session_service->get_current_session(); return new WP_REST_Response( array( 'authenticated' => (bool) $session, 'nonce' => $session['payload']['nonce'] ?? '', 'expires_at' => $session['payload']['exp'] ?? 0 ) ); }
 
 	public function handle_create_account( WP_REST_Request $request ) { $result = $this->accounts_service->create( (array) $request->get_json_params() ); if ( is_wp_error( $result ) ) { return $result; } return new WP_REST_Response( array( 'id' => $result ), 201 ); }
 	public function handle_get_account( WP_REST_Request $request ) { $row = $this->accounts_repository->find( (int) $request['id'] ); return $row ? new WP_REST_Response( $row ) : new WP_Error( 'ccf_not_found', 'Cuenta no encontrada.', array( 'status' => 404 ) ); }
