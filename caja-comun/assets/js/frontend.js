@@ -25,6 +25,40 @@
 		el.classList.toggle('is-error', isError);
 	};
 
+	const notifyInBrowser = async (title, body) => {
+		if (!('Notification' in window)) return;
+
+		try {
+			if (Notification.permission === 'default') {
+				const permission = await Notification.requestPermission();
+				if (permission !== 'granted') return;
+			}
+
+			if (Notification.permission !== 'granted') return;
+
+			if ('serviceWorker' in navigator) {
+				const registration = await navigator.serviceWorker.getRegistration();
+				if (registration && typeof registration.showNotification === 'function') {
+					await registration.showNotification(title, {
+						body,
+						icon: cfg.notificationIcon || cfg.pwaIcon || undefined,
+						badge: cfg.notificationBadge || cfg.pwaBadge || undefined,
+						tag: 'ccf-frontend-notification'
+					});
+					return;
+				}
+			}
+
+			new Notification(title, {
+				body,
+				icon: cfg.notificationIcon || cfg.pwaIcon || undefined,
+				tag: 'ccf-frontend-notification'
+			});
+		} catch (err) {
+			// Silenciar errores de notificación para no romper el flujo principal.
+		}
+	};
+
 	const openMovementModal = () => {
 		if (!modal) return;
 		if (typeof modal.showModal === 'function') {
@@ -303,6 +337,10 @@
 			closeMovementModal();
 			await refreshAll();
 			setFeedback(tableFeedback, 'Movimiento guardado correctamente.');
+			await notifyInBrowser(
+				txId ? 'Movimiento actualizado' : 'Movimiento creado',
+				payload.description ? `Concepto: ${payload.description}` : 'Se ha guardado correctamente en tu cuenta común.'
+			);
 		} catch (err) {
 			setFeedback(modalFeedback, normalizeBackendError(err.message), true);
 		}
