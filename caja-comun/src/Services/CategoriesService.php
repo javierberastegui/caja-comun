@@ -17,6 +17,9 @@ class CategoriesService {
 			return new WP_Error( 'ccf_invalid_category', 'name es obligatorio.', array( 'status' => 400 ) );
 		}
 		$id = $this->categories_repository->save( $data );
+		if ( $id <= 0 ) {
+			return new WP_Error( 'ccf_category_not_saved', 'No se pudo guardar la categoría. Revisa si ya existe una categoría con ese nombre.', array( 'status' => 400 ) );
+		}
 		$this->audit_log_service->log( 'category_created', 'category', $id, $data );
 		return $id;
 	}

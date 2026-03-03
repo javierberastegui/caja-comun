@@ -17,6 +17,9 @@ class AccountsService {
 			return new WP_Error( 'ccf_invalid_account', 'name y type son obligatorios.', array( 'status' => 400 ) );
 		}
 		$id = $this->accounts_repository->save( $data );
+		if ( $id <= 0 ) {
+			return new WP_Error( 'ccf_account_not_saved', 'No se pudo guardar la cuenta. Revisa si ya existe una cuenta con ese nombre.', array( 'status' => 400 ) );
+		}
 		$this->audit_log_service->log( 'account_created', 'account', $id, $data );
 		return $id;
 	}

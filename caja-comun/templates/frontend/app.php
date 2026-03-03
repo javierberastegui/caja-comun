@@ -51,6 +51,7 @@
 	<dialog id="ccf-movement-modal" class="ccf-modal">
 		<form id="ccf-movement-form" class="ccf-modal-form" method="dialog" enctype="multipart/form-data">
 			<input type="hidden" name="id" value="" />
+			<input type="hidden" name="source_account_id" value="" />
 			<div class="ccf-modal-header">
 				<h3 id="ccf-modal-title">Nuevo movimiento</h3>
 				<button type="button" id="ccf-modal-close" class="ccf-btn ccf-btn-soft">Cerrar</button>
@@ -61,13 +62,26 @@
 					<select name="type" required>
 						<option value="expense">Gasto</option>
 						<option value="income">Ingreso</option>
-						<option value="transfer">Transferencia</option>
 						<option value="adjustment">Ajuste</option>
 					</select>
 				</label>
 				<label>Concepto<input type="text" name="description" required></label>
-				<label>Categoría<select name="category_id" id="ccf-category-select"></select></label>
-				<label>Cuenta<select name="source_account_id" id="ccf-source-account"></select></label>
+				<div class="ccf-field-block">
+					<label>Categoría<select name="category_id" id="ccf-category-select"></select></label>
+					<p id="ccf-category-empty" class="ccf-field-empty" hidden>No hay categorías creadas todavía.</p>
+					<div class="ccf-inline-actions">
+						<button type="button" id="ccf-open-create-category" class="ccf-btn ccf-btn-soft">+ Nueva categoría</button>
+					</div>
+					<div id="ccf-create-category-wrap" class="ccf-inline-create" hidden>
+						<label>Nueva categoría<input type="text" id="ccf-create-category-name" placeholder="Ej: Alimentación"></label>
+						<div class="ccf-inline-actions">
+							<button type="button" id="ccf-create-category-submit" class="ccf-btn ccf-btn-primary">Guardar categoría</button>
+							<button type="button" id="ccf-create-category-cancel" class="ccf-btn ccf-btn-soft">Cancelar</button>
+						</div>
+						<p id="ccf-category-create-feedback" class="ccf-feedback" role="status"></p>
+					</div>
+				</div>
+				<p id="ccf-common-account-info" class="ccf-field-empty" hidden>No hay cuenta común activa. Crea o activa una cuenta común en administración.</p>
 				<label>Importe<input type="number" name="amount" min="0.01" step="0.01" required></label>
 				<label>Estado
 					<select name="status">
