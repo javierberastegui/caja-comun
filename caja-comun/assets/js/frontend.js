@@ -238,36 +238,6 @@
 		openMovementModal();
 	};
 
-	const isCategoryRequired = (type) => ['expense', 'income'].includes(type);
-	const isAccountRequired = (type) => ['expense', 'income', 'transfer', 'adjustment'].includes(type);
-
-	const validateBeforeSave = (payload) => {
-		if (!payload.transaction_date) return 'Debes seleccionar una fecha.';
-		if (!payload.type) return 'Debes seleccionar un tipo de movimiento.';
-		if (!payload.description || payload.description.trim().length === 0) return 'Debes indicar un concepto.';
-		if (!payload.amount || Number(payload.amount) <= 0) return 'El importe no es válido.';
-		if (isCategoryRequired(payload.type) && !payload.category_id) return 'Debes seleccionar una categoría.';
-		if (isAccountRequired(payload.type) && !payload.source_account_id) return 'Debes seleccionar una cuenta.';
-		return '';
-	};
-
-	const normalizeBackendError = (message) => {
-		const msg = String(message || '').toLowerCase();
-		if (msg.includes('categor')) return 'Debes seleccionar una categoría.';
-		if (msg.includes('cuenta') || msg.includes('account')) return 'Debes seleccionar una cuenta.';
-		if (msg.includes('amount') || msg.includes('importe')) return 'El importe no es válido.';
-		return message || 'No se pudo guardar el movimiento.';
-	};
-
-	const loadCatalogs = async () => {
-		const [acc, cat] = await Promise.all([
-			api('accounts?status=active').catch(() => ({ data: [] })),
-			api('categories?active=1').catch(() => ({ data: [] }))
-		]);
-		state.accounts = acc.data || [];
-		state.categories = cat.data || [];
-		renderCatalogs();
-	};
 
 	document.getElementById('ccf-new-movement').addEventListener('click', () => openModal());
 	document.getElementById('ccf-modal-close').addEventListener('click', () => closeMovementModal());
@@ -319,7 +289,7 @@
 				Array.from(files).forEach((f) => upload.append('files[]', f));
 				await api(`transactions/${realId}/attachments`, { method: 'POST', body: upload });
 			}
-			modal.close();
+			closeMovementModal();
 			await refreshAll();
 			setFeedback(tableFeedback, 'Movimiento guardado correctamente.');
 		} catch (err) {
