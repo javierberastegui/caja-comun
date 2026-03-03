@@ -24,6 +24,14 @@ class AccountsRepository {
 			$where[] = $wpdb->prepare( 'status = %s', $filters['status'] );
 		}
 
+		if ( isset( $filters['type'] ) && '' !== $filters['type'] ) {
+			$where[] = $wpdb->prepare( 'type = %s', sanitize_key( (string) $filters['type'] ) );
+		}
+
+		if ( isset( $filters['is_visible'] ) && '' !== (string) $filters['is_visible'] ) {
+			$where[] = $wpdb->prepare( 'is_visible = %d', ! empty( $filters['is_visible'] ) ? 1 : 0 );
+		}
+
 		return $wpdb->get_results( "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where ) . ' ORDER BY display_order ASC, id ASC', ARRAY_A );
 	}
 
@@ -46,6 +54,14 @@ class AccountsRepository {
 		global $wpdb;
 		$table = $this->database_manager->table( 'accounts' );
 		$row   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE slug = %s", $slug ), ARRAY_A );
+
+		return $row ?: null;
+	}
+
+	public function find_first_active_common(): ?array {
+		global $wpdb;
+		$table = $this->database_manager->table( 'accounts' );
+		$row   = $wpdb->get_row( "SELECT * FROM {$table} WHERE type = 'common' AND status = 'active' ORDER BY display_order ASC, id ASC LIMIT 1", ARRAY_A );
 
 		return $row ?: null;
 	}

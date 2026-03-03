@@ -4,7 +4,7 @@
 
 	const cfg = window.CCF_FRONTEND || {};
 	const charts = {};
-	const state = { currentMonth: new Date().toISOString().slice(0, 7), accounts: [], categories: [], rows: [] };
+	const state = { currentMonth: new Date().toISOString().slice(0, 7), accounts: [], categories: [], rows: [], commonAccountId: null };
 
 	const api = async (path, options = {}) => {
 		const isForm = options.body instanceof FormData;
@@ -19,6 +19,11 @@
 
 	const fmt = (n) => `${Number(n || 0).toFixed(2).replace('.', ',')} €`;
 	const safeLabel = (v, fallback) => (v === undefined || v === null || String(v).trim() === '' ? fallback : String(v));
+	const setFeedback = (el, msg, isError = false) => {
+		if (!el) return;
+		el.textContent = msg || '';
+		el.classList.toggle('is-error', isError);
+	};
 
 	const monthInput = document.getElementById('ccf-month');
 	const tableBody = document.querySelector('#ccf-transactions-table tbody');
@@ -30,21 +35,11 @@
 	const inlineAttachment = document.getElementById('ccf-inline-attachment');
 	const modalTitle = document.getElementById('ccf-modal-title');
 	const categorySelect = document.getElementById('ccf-category-select');
-	const accountSelect = document.getElementById('ccf-source-account');
 	const categoryEmpty = document.getElementById('ccf-category-empty');
-	const accountEmpty = document.getElementById('ccf-account-empty');
 	const categoryWrap = document.getElementById('ccf-create-category-wrap');
-	const accountWrap = document.getElementById('ccf-create-account-wrap');
 	const categoryInput = document.getElementById('ccf-create-category-name');
-	const accountInput = document.getElementById('ccf-create-account-name');
 	const categoryCreateFeedback = document.getElementById('ccf-category-create-feedback');
-	const accountCreateFeedback = document.getElementById('ccf-account-create-feedback');
-
-	const setFeedback = (el, msg, isError = false) => {
-		if (!el) return;
-		el.textContent = msg || '';
-		el.classList.toggle('is-error', isError);
-	};
+	const commonAccountInfo = document.getElementById('ccf-common-account-info');
 
 	const fillSelect = (el, rows, placeholder, emptyLabel, emptyNode) => {
 		el.innerHTML = '';
@@ -62,8 +57,8 @@
 	};
 
 	const renderCatalogs = () => {
-		fillSelect(accountSelect, state.accounts, 'Selecciona cuenta', 'No hay cuentas creadas todavía', accountEmpty);
 		fillSelect(categorySelect, state.categories, 'Selecciona categoría', 'No hay categorías creadas todavía', categoryEmpty);
+		commonAccountInfo.hidden = !!state.commonAccountId;
 	};
 
 	const renderKpis = (summary, budgetActual) => {
@@ -123,41 +118,13 @@
 		}
 	};
 
-	const renderRows = (rows) => {
-		state.rows = rows;
-		tableBody.innerHTML = '';
-		emptyState.hidden = rows.length > 0;
-		rows.forEach((tx) => {
-			const tr = document.createElement('tr');
-			const hasTicket = tx.has_ticket || Number(tx.attachment_count || 0) > 0;
-			tr.innerHTML = `
-				<td>${safeLabel(tx.transaction_date, '-')}</td>
-				<td>${safeLabel(tx.type, '-')}</td>
-				<td>${safeLabel(tx.description, 'Sin concepto')}</td>
-				<td>${safeLabel(tx.category_name, 'Sin categoría')}</td>
-				<td>${safeLabel(tx.account_name, 'Sin cuenta')}</td>
-				<td>${fmt(tx.amount)}</td>
-				<td><span class="ccf-ticket ${hasTicket ? 'is-on' : ''}">${hasTicket ? 'Con ticket' : 'Sin ticket'}</span></td>
-				<td>${safeLabel(tx.status, 'pendiente')}</td>
-				<td>
-					<div class="ccf-row-actions">
-						<button type="button" class="ccf-btn ccf-btn-soft" data-action="edit" data-id="${tx.id}">Editar</button>
-						<button type="button" class="ccf-btn ccf-btn-soft" data-action="attach" data-id="${tx.id}">Adjuntar</button>
-						<button type="button" class="ccf-btn ccf-btn-soft" data-action="ticket" data-id="${tx.id}">Ver</button>
-						<button type="button" class="ccf-btn ccf-btn-danger" data-action="delete" data-id="${tx.id}">Borrar</button>
-					</div>
-				</td>`;
-			tableBody.appendChild(tr);
-		});
-	};
-
 	const fetchTransactions = async () => {
 		const data = await api(`transactions?month=${state.currentMonth}&limit=200`);
 		const rows = (data.data || []).map((tx) => {
 			const account = state.accounts.find((a) => Number(a.id) === Number(tx.source_account_id || tx.destination_account_id));
 			const category = state.categories.find((c) => Number(c.id) === Number(tx.category_id));
 			return Object.assign({}, tx, {
-				account_name: account ? account.name : '',
+				account_name: account ? account.name : 'Cuenta común',
 				category_name: category ? category.name : ''
 			});
 		});
@@ -166,7 +133,15 @@
 			row.attachment_count = (atts.data || []).length;
 			row.has_ticket = row.attachment_count > 0;
 		}));
-		renderRows(rows);
+		state.rows = rows;
+		tableBody.innerHTML = '';
+		emptyState.hidden = rows.length > 0;
+		rows.forEach((tx) => {
+			const tr = document.createElement('tr');
+			const hasTicket = tx.has_ticket || Number(tx.attachment_count || 0) > 0;
+			tr.innerHTML = `<td>${safeLabel(tx.transaction_date, '-')}</td><td>${safeLabel(tx.type, '-')}</td><td>${safeLabel(tx.description, 'Sin concepto')}</td><td>${safeLabel(tx.category_name, 'Sin categoría')}</td><td>${safeLabel(tx.account_name, 'Cuenta común')}</td><td>${fmt(tx.amount)}</td><td><span class="ccf-ticket ${hasTicket ? 'is-on' : ''}">${hasTicket ? 'Con ticket' : 'Sin ticket'}</span></td><td>${safeLabel(tx.status, 'pendiente')}</td><td><div class="ccf-row-actions"><button type="button" class="ccf-btn ccf-btn-soft" data-action="edit" data-id="${tx.id}">Editar</button><button type="button" class="ccf-btn ccf-btn-soft" data-action="attach" data-id="${tx.id}">Adjuntar</button><button type="button" class="ccf-btn ccf-btn-soft" data-action="ticket" data-id="${tx.id}">Ver</button><button type="button" class="ccf-btn ccf-btn-danger" data-action="delete" data-id="${tx.id}">Borrar</button></div></td>`;
+			tableBody.appendChild(tr);
+		});
 	};
 
 	const refreshAll = async () => {
@@ -188,19 +163,49 @@
 		}
 	};
 
+	const isCategoryRequired = (type) => ['expense', 'income'].includes(type);
+	const validateBeforeSave = (payload) => {
+		if (!payload.transaction_date) return 'Debes seleccionar una fecha.';
+		if (!payload.type) return 'Debes seleccionar un tipo de movimiento.';
+		if (!payload.description || payload.description.trim().length === 0) return 'Debes indicar un concepto.';
+		if (!payload.amount || Number(payload.amount) <= 0) return 'El importe no es válido.';
+		if (!state.commonAccountId) return 'No hay una cuenta común activa. Crea una en administración.';
+		if (isCategoryRequired(payload.type) && !payload.category_id) return 'Debes seleccionar una categoría.';
+		return '';
+	};
+
+	const normalizeBackendError = (message) => {
+		const msg = String(message || '').toLowerCase();
+		if (msg.includes('categor')) return 'Debes seleccionar una categoría.';
+		if (msg.includes('cuenta común')) return 'No hay una cuenta común activa. Crea una en administración.';
+		if (msg.includes('common')) return 'Solo se pueden usar cuentas comunes.';
+		if (msg.includes('amount') || msg.includes('importe')) return 'El importe no es válido.';
+		return message || 'No se pudo guardar el movimiento.';
+	};
+
+	const loadCatalogs = async () => {
+		const [acc, cat] = await Promise.all([
+			api('accounts?status=active&type=common').catch(() => ({ data: [] })),
+			api('categories?active=1').catch(() => ({ data: [] }))
+		]);
+		state.accounts = acc.data || [];
+		state.categories = cat.data || [];
+		state.commonAccountId = state.accounts.length ? Number(state.accounts[0].id) : null;
+		movementForm.source_account_id.value = state.commonAccountId || '';
+		renderCatalogs();
+	};
+
 	const openModal = (tx) => {
 		movementForm.reset();
 		setFeedback(modalFeedback, '');
 		setFeedback(categoryCreateFeedback, '');
-		setFeedback(accountCreateFeedback, '');
 		categoryWrap.hidden = true;
-		accountWrap.hidden = true;
 		movementForm.id.value = tx?.id || '';
 		movementForm.transaction_date.value = tx?.transaction_date || `${state.currentMonth}-01`;
 		movementForm.type.value = tx?.type || 'expense';
 		movementForm.description.value = tx?.description || '';
 		movementForm.category_id.value = tx?.category_id || '';
-		movementForm.source_account_id.value = tx?.source_account_id || '';
+		movementForm.source_account_id.value = tx?.source_account_id || state.commonAccountId || '';
 		movementForm.amount.value = tx?.amount || '';
 		movementForm.status.value = tx?.status || 'posted';
 		modalTitle.textContent = tx ? 'Editar movimiento' : 'Nuevo movimiento';
@@ -241,45 +246,20 @@
 	document.getElementById('ccf-new-movement').addEventListener('click', () => openModal());
 	document.getElementById('ccf-modal-close').addEventListener('click', () => modal.close());
 	document.getElementById('ccf-open-create-category').addEventListener('click', () => { categoryWrap.hidden = false; categoryInput.focus(); });
-	document.getElementById('ccf-open-create-account').addEventListener('click', () => { accountWrap.hidden = false; accountInput.focus(); });
 	document.getElementById('ccf-create-category-cancel').addEventListener('click', () => { categoryWrap.hidden = true; setFeedback(categoryCreateFeedback, ''); });
-	document.getElementById('ccf-create-account-cancel').addEventListener('click', () => { accountWrap.hidden = true; setFeedback(accountCreateFeedback, ''); });
-
 	document.getElementById('ccf-create-category-submit').addEventListener('click', async () => {
 		const name = categoryInput.value.trim();
-		if (!name) {
-			setFeedback(categoryCreateFeedback, 'Escribe un nombre para la categoría.', true);
-			return;
-		}
+		if (!name) return setFeedback(categoryCreateFeedback, 'Escribe un nombre para la categoría.', true);
 		try {
-			await api('categories', { method: 'POST', body: JSON.stringify({ name, active: 1 }) });
+			const response = await api('categories', { method: 'POST', body: JSON.stringify({ name, active: 1 }) });
+			if (!response.id) throw new Error('No se pudo guardar la categoría.');
 			await loadCatalogs();
-			const created = state.categories.find((row) => row.name.toLowerCase() === name.toLowerCase());
-			if (created) movementForm.category_id.value = created.id;
+			movementForm.category_id.value = String(response.id);
 			categoryInput.value = '';
 			categoryWrap.hidden = true;
 			setFeedback(categoryCreateFeedback, 'Categoría creada correctamente.');
 		} catch (err) {
 			setFeedback(categoryCreateFeedback, normalizeBackendError(err.message), true);
-		}
-	});
-
-	document.getElementById('ccf-create-account-submit').addEventListener('click', async () => {
-		const name = accountInput.value.trim();
-		if (!name) {
-			setFeedback(accountCreateFeedback, 'Escribe un nombre para la cuenta.', true);
-			return;
-		}
-		try {
-			await api('accounts', { method: 'POST', body: JSON.stringify({ name, slug: name, type: 'common', status: 'active', is_visible: 1, allow_manual: 1, monthly_process: 1 }) });
-			await loadCatalogs();
-			const created = state.accounts.find((row) => row.name.toLowerCase() === name.toLowerCase());
-			if (created) movementForm.source_account_id.value = created.id;
-			accountInput.value = '';
-			accountWrap.hidden = true;
-			setFeedback(accountCreateFeedback, 'Cuenta creada correctamente.');
-		} catch (err) {
-			setFeedback(accountCreateFeedback, normalizeBackendError(err.message), true);
 		}
 	});
 
@@ -297,25 +277,22 @@
 			type: fd.get('type'),
 			description: fd.get('description'),
 			category_id: fd.get('category_id') || null,
-			source_account_id: fd.get('source_account_id') || null,
+			source_account_id: state.commonAccountId,
 			amount: fd.get('amount'),
 			status: fd.get('status')
 		};
 		const validationError = validateBeforeSave(payload);
-		if (validationError) {
-			setFeedback(modalFeedback, validationError, true);
-			return;
-		}
+		if (validationError) return setFeedback(modalFeedback, validationError, true);
 		try {
 			const result = txId ? await api(`transactions/${txId}`, { method: 'PUT', body: JSON.stringify(payload) }) : await api('transactions', { method: 'POST', body: JSON.stringify(payload) });
 			const realId = txId || result.id;
+			if (!realId) throw new Error('No se pudo guardar el movimiento.');
 			const files = document.getElementById('ccf-attachments').files;
-			if (files.length && realId) {
+			if (files.length) {
 				const upload = new FormData();
 				Array.from(files).forEach((f) => upload.append('files[]', f));
 				await api(`transactions/${realId}/attachments`, { method: 'POST', body: upload });
 			}
-			setFeedback(modalFeedback, 'Movimiento guardado correctamente.');
 			modal.close();
 			await refreshAll();
 			setFeedback(tableFeedback, 'Movimiento guardado correctamente.');
@@ -331,10 +308,7 @@
 		const tx = state.rows.find((row) => Number(row.id) === id);
 		if (!tx) return;
 		try {
-			if (btn.dataset.action === 'edit') {
-				openModal(tx);
-				return;
-			}
+			if (btn.dataset.action === 'edit') return openModal(tx);
 			if (btn.dataset.action === 'delete') {
 				if (!window.confirm('¿Borrar este movimiento?')) return;
 				await api(`transactions/${id}`, { method: 'DELETE' });
@@ -352,10 +326,7 @@
 			}
 			if (btn.dataset.action === 'ticket') {
 				const atts = await api(`transactions/${id}/attachments`);
-				if (!atts.data || !atts.data.length) {
-					setFeedback(tableFeedback, 'Este movimiento aún no tiene ticket.', true);
-					return;
-				}
+				if (!atts.data || !atts.data.length) return setFeedback(tableFeedback, 'Este movimiento aún no tiene ticket.', true);
 				window.open(atts.data[0].url, '_blank');
 				return;
 			}
