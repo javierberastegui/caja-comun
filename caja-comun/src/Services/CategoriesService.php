@@ -16,6 +16,20 @@ class CategoriesService {
 		if ( empty( $data['name'] ) ) {
 			return new WP_Error( 'ccf_invalid_category', 'name es obligatorio.', array( 'status' => 400 ) );
 		}
+
+		$existing = $this->categories_repository->find_by_name( (string) $data['name'] );
+		if ( $existing ) {
+			$existing_id = (int) $existing['id'];
+			if ( ! empty( $existing['active'] ) ) {
+				return $existing_id;
+			}
+
+			$this->categories_repository->set_active( $existing_id, true );
+			$this->audit_log_service->log( 'category_reactivated', 'category', $existing_id, $data );
+
+			return $existing_id;
+		}
+
 		$id = $this->categories_repository->save( $data );
 		if ( $id <= 0 ) {
 			return new WP_Error( 'ccf_category_not_saved', 'No se pudo guardar la categoría. Revisa si ya existe una categoría con ese nombre.', array( 'status' => 400 ) );
