@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Caja Común
  * Description: Gestión financiera doméstica con presupuesto común, ingresos mensuales, separación fuera de presupuesto y dashboard visual.
- * Version: 0.1.0
- * Author: Econom-a
+ * Version: 1.0.0
+ * Author: Lokky
  * Requires PHP: 8.0
  * Text Domain: caja-comun
  */
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'CCF_VERSION', '0.1.0' );
+define( 'CCF_VERSION', '1.0.0' );
 define( 'CCF_FILE', __FILE__ );
 define( 'CCF_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CCF_URL', plugin_dir_url( __FILE__ ) );
