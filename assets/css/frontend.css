@@ -202,3 +202,11 @@ canvas.ecopro-chart{
     -webkit-text-fill-color: var(--ecopro-text-strong) !important;
     opacity: 1 !important;
 }
+
+
+/* v3.4.4 force-fix dark inline heading colors coming from PHP markup */
+.ecopro-card [style*="color:#1d2327"],
+.ecopro-wrap [style*="color:#1d2327"]{
+    color: var(--ecopro-text-strong) !important;
+    -webkit-text-fill-color: var(--ecopro-text-strong) !important;
+}
