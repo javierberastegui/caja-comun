@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 2.2
+ * Version: 2.3
  * Author: Loki
  */
 
@@ -72,11 +72,7 @@ if (!class_exists('EconomiaPro')) {
                     ['name' => 'Hogar', 'type' => 'expense'],
                 ];
                 foreach ($defaults as $cat) {
-                    $wpdb->insert(
-                        $this->table_categories,
-                        $cat,
-                        ['%s', '%s']
-                    );
+                    $wpdb->insert($this->table_categories, $cat, ['%s', '%s']);
                 }
             }
         }
@@ -93,24 +89,53 @@ if (!class_exists('EconomiaPro')) {
             );
         }
 
-        public function admin_page(): void {
-            if (!current_user_can('manage_options')) {
-                wp_die('No autorizado.');
-            }
-
+        private function get_totals(): array {
             global $wpdb;
-            $rows = $wpdb->get_results(
+            $income = (float) $wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$this->table_transactions} WHERE type='income'");
+            $expense = (float) $wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$this->table_transactions} WHERE type='expense'");
+            return [
+                'income' => $income,
+                'expense' => $expense,
+                'balance' => $income - $expense,
+            ];
+        }
+
+        private function get_categories(): array {
+            global $wpdb;
+            return $wpdb->get_results("SELECT * FROM {$this->table_categories} ORDER BY type ASC, name ASC");
+        }
+
+        private function get_transactions(): array {
+            global $wpdb;
+            return $wpdb->get_results(
                 "SELECT t.*, c.name AS category_name
                  FROM {$this->table_transactions} t
                  LEFT JOIN {$this->table_categories} c ON c.id = t.category_id
                  ORDER BY t.id DESC
                  LIMIT 50"
             );
+        }
 
-            $categories = $wpdb->get_results("SELECT * FROM {$this->table_categories} ORDER BY type ASC, name ASC");
-            $income = (float) $wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$this->table_transactions} WHERE type='income'");
-            $expense = (float) $wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$this->table_transactions} WHERE type='expense'");
-            $balance = $income - $expense;
+        private function get_front_category_summary(): array {
+            global $wpdb;
+            return $wpdb->get_results(
+                "SELECT c.name, t.type, SUM(t.amount) AS total
+                 FROM {$this->table_transactions} t
+                 INNER JOIN {$this->table_categories} c ON c.id = t.category_id
+                 GROUP BY t.category_id, t.type
+                 ORDER BY total DESC
+                 LIMIT 8"
+            );
+        }
+
+        public function admin_page(): void {
+            if (!current_user_can('manage_options')) {
+                wp_die('No autorizado.');
+            }
+
+            $totals = $this->get_totals();
+            $rows = $this->get_transactions();
+            $categories = $this->get_categories();
             $page_id = (int) get_option(self::OPTION_PAGE_ID, 0);
             $pages = get_pages([
                 'sort_column' => 'post_title',
@@ -127,15 +152,15 @@ if (!class_exists('EconomiaPro')) {
                 <div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:16px;max-width:960px;margin:18px 0 24px 0;">
                     <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;">
                         <strong>Ingresos</strong>
-                        <div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($income, 2, ',', '.')); ?> €</div>
+                        <div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($totals['income'], 2, ',', '.')); ?> €</div>
                     </div>
                     <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;">
                         <strong>Gastos</strong>
-                        <div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($expense, 2, ',', '.')); ?> €</div>
+                        <div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($totals['expense'], 2, ',', '.')); ?> €</div>
                     </div>
                     <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;">
                         <strong>Balance</strong>
-                        <div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($balance, 2, ',', '.')); ?> €</div>
+                        <div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($totals['balance'], 2, ',', '.')); ?> €</div>
                     </div>
                 </div>
 
@@ -216,7 +241,7 @@ if (!class_exists('EconomiaPro')) {
                             <?php wp_nonce_field('ecopro_add_tx'); ?>
                             <input type="hidden" name="action" value="ecopro_add_tx">
 
-                            <select name="type" id="ecopro-type">
+                            <select name="type">
                                 <option value="income">Ingreso</option>
                                 <option value="expense">Gasto</option>
                             </select>
@@ -302,11 +327,11 @@ if (!class_exists('EconomiaPro')) {
         }
 
         public function add_category(): void {
-            if (!current_user_can('manage_options')) {
+            check_admin_referer('ecopro_add_category');
+
+            if (!$this->frontend_or_admin_can_manage()) {
                 wp_die('No autorizado.');
             }
-
-            check_admin_referer('ecopro_add_category');
 
             global $wpdb;
 
@@ -314,8 +339,7 @@ if (!class_exists('EconomiaPro')) {
             $name = isset($_POST['name']) ? sanitize_text_field(wp_unslash($_POST['name'])) : '';
 
             if (!in_array($type, ['income', 'expense'], true) || $name === '') {
-                wp_safe_redirect(admin_url('admin.php?page=eco-pro'));
-                exit;
+                $this->safe_back_redirect();
             }
 
             $wpdb->insert(
@@ -327,16 +351,15 @@ if (!class_exists('EconomiaPro')) {
                 ['%s', '%s']
             );
 
-            wp_safe_redirect(admin_url('admin.php?page=eco-pro'));
-            exit;
+            $this->safe_back_redirect();
         }
 
         public function add_tx(): void {
-            if (!current_user_can('manage_options')) {
+            check_admin_referer('ecopro_add_tx');
+
+            if (!$this->frontend_or_admin_can_manage()) {
                 wp_die('No autorizado.');
             }
-
-            check_admin_referer('ecopro_add_tx');
 
             global $wpdb;
 
@@ -346,14 +369,12 @@ if (!class_exists('EconomiaPro')) {
             $description = isset($_POST['description']) ? sanitize_text_field(wp_unslash($_POST['description'])) : '';
 
             if (!in_array($type, ['income', 'expense'], true) || $amount <= 0 || $description === '' || $category_id <= 0) {
-                wp_safe_redirect(admin_url('admin.php?page=eco-pro'));
-                exit;
+                $this->safe_back_redirect();
             }
 
             $cat_type = $wpdb->get_var($wpdb->prepare("SELECT type FROM {$this->table_categories} WHERE id = %d", $category_id));
             if ($cat_type !== $type) {
-                wp_safe_redirect(admin_url('admin.php?page=eco-pro'));
-                exit;
+                $this->safe_back_redirect();
             }
 
             $wpdb->insert(
@@ -367,12 +388,45 @@ if (!class_exists('EconomiaPro')) {
                 ['%s', '%d', '%f', '%s']
             );
 
-            wp_safe_redirect(admin_url('admin.php?page=eco-pro'));
+            $this->safe_back_redirect();
+        }
+
+        private function frontend_or_admin_can_manage(): bool {
+            if (current_user_can('manage_options')) {
+                return true;
+            }
+            return $this->frontend_access_granted();
+        }
+
+        private function frontend_access_granted(): bool {
+            if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+                session_start();
+            }
+            return !empty($_SESSION['ecopro_front_ok']);
+        }
+
+        private function mark_frontend_access_granted(): void {
+            if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+                session_start();
+            }
+            $_SESSION['ecopro_front_ok'] = 1;
+        }
+
+        private function safe_back_redirect(): void {
+            $referer = wp_get_referer();
+            if (!$referer) {
+                $referer = admin_url('admin.php?page=eco-pro');
+            }
+            wp_safe_redirect($referer);
             exit;
         }
 
         private function panel_styles(): string {
-            return 'max-width:720px;margin:48px auto;padding:32px;background:#ffffff;border:1px solid #dcdcde;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);color:#1d2327;';
+            return 'max-width:900px;margin:48px auto;padding:32px;background:#ffffff;border:1px solid #dcdcde;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);color:#1d2327;';
+        }
+
+        private function card_styles(): string {
+            return 'background:#fff;border:1px solid #ddd;border-radius:12px;padding:18px;';
         }
 
         private function input_styles(): string {
@@ -383,29 +437,124 @@ if (!class_exists('EconomiaPro')) {
             return 'display:inline-block;padding:12px 18px;border:0;border-radius:10px;background:#2271b1;color:#fff;font-weight:600;cursor:pointer;';
         }
 
+        private function render_front_stats(array $totals): string {
+            return '<div style="display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:14px;margin-bottom:18px;">
+                <div style="' . esc_attr($this->card_styles()) . '"><strong>Ingresos</strong><div style="font-size:26px;margin-top:8px;">' . esc_html(number_format($totals['income'], 2, ',', '.')) . ' €</div></div>
+                <div style="' . esc_attr($this->card_styles()) . '"><strong>Gastos</strong><div style="font-size:26px;margin-top:8px;">' . esc_html(number_format($totals['expense'], 2, ',', '.')) . ' €</div></div>
+                <div style="' . esc_attr($this->card_styles()) . '"><strong>Balance</strong><div style="font-size:26px;margin-top:8px;">' . esc_html(number_format($totals['balance'], 2, ',', '.')) . ' €</div></div>
+            </div>';
+        }
+
+        private function render_front_category_form(): string {
+            return '<div style="' . esc_attr($this->card_styles()) . '">
+                <h3 style="margin:0 0 14px 0;color:#1d2327;">Crear categoría</h3>
+                <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:flex;gap:10px;flex-wrap:wrap;">
+                    ' . wp_nonce_field('ecopro_add_category', '_wpnonce', true, false) . '
+                    <input type="hidden" name="action" value="ecopro_add_category">
+                    <select name="type" style="padding:12px;border:1px solid #c3c4c7;border-radius:10px;">
+                        <option value="income">Ingreso</option>
+                        <option value="expense">Gasto</option>
+                    </select>
+                    <input type="text" name="name" placeholder="Nueva categoría" style="min-width:220px;padding:12px;border:1px solid #c3c4c7;border-radius:10px;" required>
+                    <button type="submit" style="' . esc_attr($this->button_styles()) . '">Añadir</button>
+                </form>
+            </div>';
+        }
+
+        private function render_front_tx_form(array $categories): string {
+            $options = '<option value="">Categoría</option>';
+            foreach ($categories as $cat) {
+                $label = ($cat->type === 'income' ? '[Ingreso] ' : '[Gasto] ') . $cat->name;
+                $options .= '<option value="' . (int) $cat->id . '">' . esc_html($label) . '</option>';
+            }
+
+            return '<div style="' . esc_attr($this->card_styles()) . '">
+                <h3 style="margin:0 0 14px 0;color:#1d2327;">Añadir movimiento</h3>
+                <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:flex;gap:10px;flex-wrap:wrap;">
+                    ' . wp_nonce_field('ecopro_add_tx', '_wpnonce', true, false) . '
+                    <input type="hidden" name="action" value="ecopro_add_tx">
+                    <select name="type" style="padding:12px;border:1px solid #c3c4c7;border-radius:10px;">
+                        <option value="income">Ingreso</option>
+                        <option value="expense">Gasto</option>
+                    </select>
+                    <select name="category_id" style="padding:12px;border:1px solid #c3c4c7;border-radius:10px;" required>' . $options . '</select>
+                    <input type="number" step="0.01" min="0" name="amount" placeholder="Cantidad" style="min-width:140px;padding:12px;border:1px solid #c3c4c7;border-radius:10px;" required>
+                    <input type="text" name="description" placeholder="Descripción" style="min-width:220px;padding:12px;border:1px solid #c3c4c7;border-radius:10px;" required>
+                    <button type="submit" style="' . esc_attr($this->button_styles()) . '">Guardar</button>
+                </form>
+            </div>';
+        }
+
+        private function render_front_category_summary(array $items): string {
+            if (empty($items)) {
+                return '';
+            }
+            $html = '<div style="' . esc_attr($this->card_styles()) . '">
+                <h3 style="margin:0 0 12px 0;color:#1d2327;">Estadísticas por categoría</h3>
+                <ul style="margin:0;padding-left:18px;color:#50575e;font-size:16px;">';
+            foreach ($items as $item) {
+                $html .= '<li><strong>' . esc_html($item->name) . '</strong> (' . ($item->type === 'income' ? 'Ingreso' : 'Gasto') . '): ' . esc_html(number_format((float) $item->total, 2, ',', '.')) . ' €</li>';
+            }
+            $html .= '</ul></div>';
+            return $html;
+        }
+
+        private function render_front_recent_transactions(array $rows): string {
+            $html = '<div style="' . esc_attr($this->card_styles()) . '">
+                <h3 style="margin:0 0 12px 0;color:#1d2327;">Últimos movimientos</h3>';
+
+            if (empty($rows)) {
+                return $html . '<p style="margin:0;color:#50575e;">No hay movimientos todavía.</p></div>';
+            }
+
+            $html .= '<div style="overflow:auto;"><table style="width:100%;border-collapse:collapse;">
+                <thead><tr>
+                    <th style="text-align:left;padding:10px;border-bottom:1px solid #ddd;">Tipo</th>
+                    <th style="text-align:left;padding:10px;border-bottom:1px solid #ddd;">Categoría</th>
+                    <th style="text-align:left;padding:10px;border-bottom:1px solid #ddd;">Cantidad</th>
+                    <th style="text-align:left;padding:10px;border-bottom:1px solid #ddd;">Descripción</th>
+                </tr></thead><tbody>';
+
+            foreach ($rows as $r) {
+                $html .= '<tr>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">' . ($r->type === 'income' ? 'Ingreso' : 'Gasto') . '</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">' . esc_html($r->category_name ?: '—') . '</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">' . esc_html(number_format((float) $r->amount, 2, ',', '.')) . ' €</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">' . esc_html($r->description) . '</td>
+                </tr>';
+            }
+
+            return $html . '</tbody></table></div></div>';
+        }
+
         public function dashboard(): string {
-            global $wpdb;
-
-            $income = (float) $wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$this->table_transactions} WHERE type='income'");
-            $expense = (float) $wpdb->get_var("SELECT COALESCE(SUM(amount),0) FROM {$this->table_transactions} WHERE type='expense'");
-            $balance = $income - $expense;
-
-            $by_category = $wpdb->get_results(
-                "SELECT c.name, t.type, SUM(t.amount) AS total
-                 FROM {$this->table_transactions} t
-                 INNER JOIN {$this->table_categories} c ON c.id = t.category_id
-                 GROUP BY t.category_id, t.type
-                 ORDER BY total DESC
-                 LIMIT 6"
-            );
-
             $stored_hash = (string) get_option(self::OPTION_PASSWORD, '');
 
             if ($stored_hash === '') {
                 return '<div style="' . esc_attr($this->panel_styles()) . '"><p style="margin:0;color:#1d2327;">El administrador todavía no ha configurado la contraseña.</p></div>';
             }
 
-            if (!isset($_POST['eco_login'])) {
+            if (isset($_POST['eco_login'])) {
+                $password = isset($_POST['eco_pass']) ? (string) wp_unslash($_POST['eco_pass']) : '';
+                if (password_verify($password, $stored_hash)) {
+                    $this->mark_frontend_access_granted();
+                } else {
+                    return '<div style="' . esc_attr($this->panel_styles()) . '">
+                        <p style="margin:0 0 12px 0;color:#b32d2e;font-weight:600;">Contraseña incorrecta.</p>
+                        <form method="post">
+                            <p style="margin:0 0 16px 0;">
+                                <input type="password" name="eco_pass" placeholder="Contraseña" style="' . esc_attr($this->input_styles()) . '" required>
+                            </p>
+                            <p style="margin:0;">
+                                <button type="submit" style="' . esc_attr($this->button_styles()) . '">Reintentar</button>
+                            </p>
+                            <input type="hidden" name="eco_login" value="1">
+                        </form>
+                    </div>';
+                }
+            }
+
+            if (!$this->frontend_access_granted()) {
                 return '<form method="post" style="' . esc_attr($this->panel_styles()) . '">
                     <h2 style="margin:0 0 18px 0;color:#1d2327;font-size:36px;line-height:1.1;">Acceso Economía</h2>
                     <p style="margin:0 0 18px 0;color:#50575e;">Introduce tu contraseña para acceder al panel financiero.</p>
@@ -419,40 +568,21 @@ if (!class_exists('EconomiaPro')) {
                 </form>';
             }
 
-            $password = isset($_POST['eco_pass']) ? (string) wp_unslash($_POST['eco_pass']) : '';
+            $totals = $this->get_totals();
+            $categories = $this->get_categories();
+            $rows = $this->get_transactions();
+            $summary = $this->get_front_category_summary();
 
-            if (!password_verify($password, $stored_hash)) {
-                return '<div style="' . esc_attr($this->panel_styles()) . '">
-                    <p style="margin:0 0 12px 0;color:#b32d2e;font-weight:600;">Contraseña incorrecta.</p>
-                    <form method="post">
-                        <p style="margin:0 0 16px 0;">
-                            <input type="password" name="eco_pass" placeholder="Contraseña" style="' . esc_attr($this->input_styles()) . '" required>
-                        </p>
-                        <p style="margin:0;">
-                            <button type="submit" style="' . esc_attr($this->button_styles()) . '">Reintentar</button>
-                        </p>
-                        <input type="hidden" name="eco_login" value="1">
-                    </form>
-                </div>';
-            }
-
-            $html = '<div style="' . esc_attr($this->panel_styles()) . '">
-                <h2 style="margin:0 0 14px 0;color:#1d2327;font-size:36px;line-height:1.1;">Dashboard Economía</h2>
-                <p style="margin:0 0 8px 0;color:#50575e;font-size:18px;"><strong>Ingresos:</strong> ' . esc_html(number_format($income, 2, ',', '.')) . ' €</p>
-                <p style="margin:0 0 8px 0;color:#50575e;font-size:18px;"><strong>Gastos:</strong> ' . esc_html(number_format($expense, 2, ',', '.')) . ' €</p>
-                <p style="margin:0 0 18px 0;color:#50575e;font-size:18px;"><strong>Balance:</strong> ' . esc_html(number_format($balance, 2, ',', '.')) . ' €</p>';
-
-            if (!empty($by_category)) {
-                $html .= '<h3 style="margin:18px 0 10px 0;color:#1d2327;">Resumen por categoría</h3><ul style="margin:0;padding-left:18px;color:#50575e;font-size:16px;">';
-                foreach ($by_category as $item) {
-                    $html .= '<li><strong>' . esc_html($item->name) . '</strong> (' . ($item->type === 'income' ? 'Ingreso' : 'Gasto') . '): ' . esc_html(number_format((float) $item->total, 2, ',', '.')) . ' €</li>';
-                }
-                $html .= '</ul>';
-            }
-
-            $html .= '</div>';
-
-            return $html;
+            return '<div style="' . esc_attr($this->panel_styles()) . '">
+                <h2 style="margin:0 0 18px 0;color:#1d2327;font-size:36px;line-height:1.1;">Dashboard Economía</h2>'
+                . $this->render_front_stats($totals)
+                . '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">'
+                . $this->render_front_category_form()
+                . $this->render_front_tx_form($categories)
+                . '</div>'
+                . $this->render_front_category_summary($summary)
+                . '<div style="margin-top:16px;">' . $this->render_front_recent_transactions($rows) . '</div>
+            </div>';
         }
     }
 
