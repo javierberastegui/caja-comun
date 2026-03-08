@@ -189,3 +189,16 @@ canvas.ecopro-chart{
     }
     .ecopro-btn{width:100%;}
 }
+
+/* v3.4.3 heading contrast fix */
+.ecopro-card h2,
+.ecopro-card h3,
+.ecopro-card h4,
+.ecopro-wrap h2,
+.ecopro-wrap h3,
+.ecopro-wrap h4,
+.ecopro-title{
+    color: var(--ecopro-text-strong) !important;
+    -webkit-text-fill-color: var(--ecopro-text-strong) !important;
+    opacity: 1 !important;
+}
