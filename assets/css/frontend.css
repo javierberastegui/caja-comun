@@ -301,3 +301,54 @@ canvas.ecopro-chart{
     transform:translateY(-2px);
     box-shadow:0 10px 30px rgba(0,0,0,.25);
 }
+
+
+/* v3.8 fintech app polish */
+.ecopro-card-metric{
+    position:relative;
+    overflow:hidden;
+}
+.ecopro-card-metric::after{
+    content:"";
+    position:absolute;
+    inset:auto -30% -30% auto;
+    width:120px;
+    height:120px;
+    border-radius:999px;
+    background:radial-gradient(circle, rgba(255,255,255,.12) 0%, transparent 70%);
+    pointer-events:none;
+}
+.ecopro-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:6px 10px;
+    border-radius:999px;
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.10);
+    color:#eef4ff;
+    font-size:13px;
+    line-height:1;
+    white-space:nowrap;
+}
+.amount{
+    font-weight:800;
+    letter-spacing:.2px;
+}
+@media (max-width:640px){
+    .ecopro-wrap{
+        padding:14px;
+        border-radius:20px;
+    }
+    .ecopro-title{
+        font-size:28px;
+        margin-bottom:14px;
+    }
+    .ecopro-card-metric .amount{
+        font-size:24px !important;
+    }
+    .ecopro-table th:nth-child(4),
+    .ecopro-table td:nth-child(4){
+        display:none;
+    }
+}

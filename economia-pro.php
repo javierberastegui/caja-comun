@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 3.7
+ * Version: 3.8
  * Author: Loki
  */
 
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '3.7';
+    private const VERSION = '3.8';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
     private const CRON_HOOK       = 'ecopro_daily_check';
@@ -666,7 +666,7 @@ final class EconomiaPro {
 
     private function render_front_projection_box(array $p): string {
         $balance_class = $p['projected_balance'] >= 0 ? 'ecopro-ok' : 'ecopro-danger';
-        return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Proyección fin de mes</h2><p class="ecopro-muted" style="margin-bottom:12px;">Mes '.esc_html($p['period']).' · día '.(int)$p['day_of_month'].' de '.(int)$p['days_in_month'].' · patrón '.esc_html($p['pattern']).' · cálculo automático</p><p class="ecopro-muted" style="margin-bottom:12px;">Ingreso proyectado: media histórica automática si hay historial suficiente; si no, extrapolación lineal.</p><div class="ecopro-grid-3"><div class="ecopro-card"><strong>Ingreso proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_income'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Gasto proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_expense'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Balance proyectado</strong><div style="font-size:22px;margin-top:6px;"><span class="'.$balance_class.'">'.esc_html(number_format((float)$p['projected_balance'],2,',','.')).' €</span></div></div></div></div>';
+        return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Proyección fin de mes</h2><p class="ecopro-muted" style="margin-bottom:12px;">Mes '.esc_html($p['period']).' · día '.(int)$p['day_of_month'].' de '.(int)$p['days_in_month'].' · patrón '.esc_html($p['pattern']).' · cálculo automático</p><p class="ecopro-muted" style="margin-bottom:12px;">Ingreso proyectado: media histórica automática si hay historial suficiente; si no, extrapolación lineal.</p><div class="ecopro-grid-3"><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Ingreso proyectado</h3><div class="amount" style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_income'],2,',','.')).' €</div></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Gasto proyectado</h3><div class="amount" style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_expense'],2,',','.')).' €</div></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Balance proyectado</h3><div class="amount" style="font-size:22px;margin-top:6px;"><span class="'.$balance_class.'">'.esc_html(number_format((float)$p['projected_balance'],2,',','.')).' €</span></div></div></div></div>';
     }
 
     private function render_monthly_summary_box(array $rows, string $title = 'Resumen mensual'): string {
@@ -742,6 +742,34 @@ final class EconomiaPro {
         $bd = $kind==='ok' ? '#46b450' : '#b32d2e';
         $cl = $kind==='ok' ? '#1e4620' : '#8a2424';
         return '<div style="margin:0 0 16px 0;padding:12px 14px;border-left:4px solid '.$bd.';background:'.$bg.';color:'.$cl.';border-radius:8px;">'.esc_html($text).'</div>';
+    }
+
+
+    private function get_category_icon(string $name, string $type = ''): string {
+        $n = function_exists('mb_strtolower') ? mb_strtolower($name) : strtolower($name);
+        if ($type === 'income') return '💶';
+        $map = [
+            'comida' => '🍔',
+            'supermercado' => '🛒',
+            'transporte' => '🚗',
+            'hogar' => '🏠',
+            'salud' => '🩺',
+            'farmacia' => '💊',
+            'ocio' => '🎉',
+            'internet' => '🌐',
+            'luz' => '💡',
+            'agua' => '🚿',
+            'gas' => '🔥',
+            'mascota' => '🐾',
+            'viaje' => '✈️',
+            'ropa' => '👕',
+            'extra' => '✨',
+            'salario' => '💼'
+        ];
+        foreach ($map as $key => $icon) {
+            if (strpos($n, $key) !== false) return $icon;
+        }
+        return '📁';
     }
 
     private function render_category_options(array $categories, ?string $selected_type = null, int $selected_id = 0): string {
@@ -1079,7 +1107,7 @@ final class EconomiaPro {
     }
 
     private function render_front_stats(array $totals): string {
-        return '<div class="ecopro-grid-3"><div class="ecopro-card"><strong>Ingresos</strong><div style="font-size:26px;margin-top:8px;">'.esc_html(number_format($totals['income'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Gastos</strong><div style="font-size:26px;margin-top:8px;">'.esc_html(number_format($totals['expense'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Balance</strong><div style="font-size:26px;margin-top:8px;">'.esc_html(number_format($totals['balance'],2,',','.')).' €</div></div></div>';
+        return '<div class="ecopro-grid-3"><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Ingresos</h3><div class="amount" style="font-size:26px;margin-top:8px;">'.esc_html(number_format($totals['income'],2,',','.')).' €</div></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Gastos</h3><div class="amount" style="font-size:26px;margin-top:8px;">'.esc_html(number_format($totals['expense'],2,',','.')).' €</div></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Balance</h3><div class="amount" style="font-size:26px;margin-top:8px;">'.esc_html(number_format($totals['balance'],2,',','.')).' €</div></div></div>';
     }
 
     private function render_front_category_form(): string {
@@ -1090,7 +1118,7 @@ final class EconomiaPro {
         $html = '<div class="ecopro-card"><h2 style="margin:0 0 12px 0;color:#ffffff;">Categorías disponibles</h2>';
         if (empty($categories)) return $html.'<p class="ecopro-muted">No hay categorías todavía.</p></div>';
         $html .= '<div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>ID</th><th>Nombre</th><th>Tipo</th></tr></thead><tbody>';
-        foreach ($categories as $cat) $html .= '<tr><td>'.(int)$cat->id.'</td><td>'.esc_html($cat->name).'</td><td>'.($cat->type==='income'?'Ingreso':'Gasto').'</td></tr>';
+        foreach ($categories as $cat) $html .= '<tr><td>'.(int)$cat->id.'</td><td><span class="ecopro-chip">'.$this->get_category_icon($cat->name, $cat->type).' '.esc_html($cat->name).'</span></td><td>'.($cat->type==='income'?'Ingreso':'Gasto').'</td></tr>';
         return $html.'</tbody></table></div></div>';
     }
 
@@ -1190,7 +1218,7 @@ final class EconomiaPro {
         $html .= '</select><button type="submit" class="ecopro-btn">Filtrar</button><a class="ecopro-link" href="'.$this->current_url_with(['eco_month'=>null,'eco_type'=>null,'eco_category'=>null]).'">Reset</a></form>';
         if (empty($rows)) return $html.'<p class="ecopro-muted">No hay movimientos todavía.</p></div>';
         $html .= '<div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Descripción</th><th>Acción</th></tr></thead><tbody>';
-        foreach ($rows as $r) { $edit_url = $this->current_url_with(['edit_tx' => (int)$r->id]); $html .= '<tr><td>'.($r->type==='income'?'Ingreso':'Gasto').'</td><td>'.esc_html($r->category_name ?: '—').'</td><td>'.esc_html(number_format((float)$r->amount,2,',','.')).' €</td><td>'.esc_html($r->description).'</td><td><a class="ecopro-link" href="'.$edit_url.'">Editar</a></td></tr>'; }
+        foreach ($rows as $r) { $edit_url = $this->current_url_with(['edit_tx' => (int)$r->id]); $catLabel = $r->category_name ? '<span class="ecopro-chip">'.$this->get_category_icon($r->category_name, $r->type).' '.esc_html($r->category_name).'</span>' : '—'; $html .= '<tr><td>'.($r->type==='income'?'Ingreso':'Gasto').'</td><td>'.$catLabel.'</td><td><span class="amount">'.esc_html(number_format((float)$r->amount,2,',','.')).' €</span></td><td>'.esc_html($r->description).'</td><td><a class="ecopro-link" href="'.$edit_url.'">Editar</a></td></tr>'; }
         return $html.'</tbody></table></div></div>';
     }
 
