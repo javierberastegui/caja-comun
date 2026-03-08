@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 2.3
+ * Version: 2.3.1
  * Author: Loki
  */
 
@@ -128,6 +128,32 @@ if (!class_exists('EconomiaPro')) {
             );
         }
 
+        private function get_notice_html(): string {
+            $key = isset($_GET['eco_notice']) ? sanitize_text_field(wp_unslash($_GET['eco_notice'])) : '';
+            if ($key === '') {
+                return '';
+            }
+
+            $messages = [
+                'category_added' => ['ok', 'Categoría creada correctamente.'],
+                'tx_added'       => ['ok', 'Movimiento guardado correctamente.'],
+                'invalid'        => ['err', 'Faltan datos o no son válidos.'],
+                'type_mismatch'  => ['err', 'La categoría no coincide con el tipo de movimiento.'],
+                'db_error'       => ['err', 'No se pudo guardar en la base de datos.'],
+            ];
+
+            if (!isset($messages[$key])) {
+                return '';
+            }
+
+            [$kind, $text] = $messages[$key];
+            $bg = $kind === 'ok' ? '#ecf7ed' : '#fcf0f1';
+            $bd = $kind === 'ok' ? '#46b450' : '#b32d2e';
+            $cl = $kind === 'ok' ? '#1e4620' : '#8a2424';
+
+            return '<div style="margin:0 0 16px 0;padding:12px 14px;border-left:4px solid ' . esc_attr($bd) . ';background:' . esc_attr($bg) . ';color:' . esc_attr($cl) . ';border-radius:8px;">' . esc_html($text) . '</div>';
+        }
+
         public function admin_page(): void {
             if (!current_user_can('manage_options')) {
                 wp_die('No autorizado.');
@@ -144,6 +170,7 @@ if (!class_exists('EconomiaPro')) {
             ?>
             <div class="wrap">
                 <h1>Economía Pro</h1>
+                <?php echo $this->get_notice_html(); ?>
 
                 <?php if (isset($_GET['updated']) && $_GET['updated'] === '1') : ?>
                     <div class="notice notice-success is-dismissible"><p>Configuración guardada.</p></div>
@@ -339,10 +366,10 @@ if (!class_exists('EconomiaPro')) {
             $name = isset($_POST['name']) ? sanitize_text_field(wp_unslash($_POST['name'])) : '';
 
             if (!in_array($type, ['income', 'expense'], true) || $name === '') {
-                $this->safe_back_redirect();
+                $this->safe_back_redirect('invalid');
             }
 
-            $wpdb->insert(
+            $result = $wpdb->insert(
                 $this->table_categories,
                 [
                     'name' => $name,
@@ -351,7 +378,11 @@ if (!class_exists('EconomiaPro')) {
                 ['%s', '%s']
             );
 
-            $this->safe_back_redirect();
+            if ($result === false) {
+                $this->safe_back_redirect('db_error');
+            }
+
+            $this->safe_back_redirect('category_added');
         }
 
         public function add_tx(): void {
@@ -369,15 +400,15 @@ if (!class_exists('EconomiaPro')) {
             $description = isset($_POST['description']) ? sanitize_text_field(wp_unslash($_POST['description'])) : '';
 
             if (!in_array($type, ['income', 'expense'], true) || $amount <= 0 || $description === '' || $category_id <= 0) {
-                $this->safe_back_redirect();
+                $this->safe_back_redirect('invalid');
             }
 
             $cat_type = $wpdb->get_var($wpdb->prepare("SELECT type FROM {$this->table_categories} WHERE id = %d", $category_id));
             if ($cat_type !== $type) {
-                $this->safe_back_redirect();
+                $this->safe_back_redirect('type_mismatch');
             }
 
-            $wpdb->insert(
+            $result = $wpdb->insert(
                 $this->table_transactions,
                 [
                     'type' => $type,
@@ -388,7 +419,11 @@ if (!class_exists('EconomiaPro')) {
                 ['%s', '%d', '%f', '%s']
             );
 
-            $this->safe_back_redirect();
+            if ($result === false) {
+                $this->safe_back_redirect('db_error');
+            }
+
+            $this->safe_back_redirect('tx_added');
         }
 
         private function frontend_or_admin_can_manage(): bool {
@@ -412,11 +447,16 @@ if (!class_exists('EconomiaPro')) {
             $_SESSION['ecopro_front_ok'] = 1;
         }
 
-        private function safe_back_redirect(): void {
+        private function safe_back_redirect(string $notice = ''): void {
             $referer = wp_get_referer();
             if (!$referer) {
                 $referer = admin_url('admin.php?page=eco-pro');
             }
+
+            if ($notice !== '') {
+                $referer = add_query_arg('eco_notice', $notice, $referer);
+            }
+
             wp_safe_redirect($referer);
             exit;
         }
@@ -461,6 +501,32 @@ if (!class_exists('EconomiaPro')) {
             </div>';
         }
 
+        private function render_front_category_list(array $categories): string {
+            $html = '<div style="' . esc_attr($this->card_styles()) . '">
+                <h3 style="margin:0 0 12px 0;color:#1d2327;">Categorías disponibles</h3>';
+
+            if (empty($categories)) {
+                return $html . '<p style="margin:0;color:#50575e;">No hay categorías todavía.</p></div>';
+            }
+
+            $html .= '<div style="overflow:auto;"><table style="width:100%;border-collapse:collapse;">
+                <thead><tr>
+                    <th style="text-align:left;padding:10px;border-bottom:1px solid #ddd;">ID</th>
+                    <th style="text-align:left;padding:10px;border-bottom:1px solid #ddd;">Nombre</th>
+                    <th style="text-align:left;padding:10px;border-bottom:1px solid #ddd;">Tipo</th>
+                </tr></thead><tbody>';
+
+            foreach ($categories as $cat) {
+                $html .= '<tr>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">' . (int) $cat->id . '</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">' . esc_html($cat->name) . '</td>
+                    <td style="padding:10px;border-bottom:1px solid #eee;">' . ($cat->type === 'income' ? 'Ingreso' : 'Gasto') . '</td>
+                </tr>';
+            }
+
+            return $html . '</tbody></table></div></div>';
+        }
+
         private function render_front_tx_form(array $categories): string {
             $options = '<option value="">Categoría</option>';
             foreach ($categories as $cat) {
@@ -495,8 +561,7 @@ if (!class_exists('EconomiaPro')) {
             foreach ($items as $item) {
                 $html .= '<li><strong>' . esc_html($item->name) . '</strong> (' . ($item->type === 'income' ? 'Ingreso' : 'Gasto') . '): ' . esc_html(number_format((float) $item->total, 2, ',', '.')) . ' €</li>';
             }
-            $html .= '</ul></div>';
-            return $html;
+            return $html . '</ul></div>';
         }
 
         private function render_front_recent_transactions(array $rows): string {
@@ -575,12 +640,16 @@ if (!class_exists('EconomiaPro')) {
 
             return '<div style="' . esc_attr($this->panel_styles()) . '">
                 <h2 style="margin:0 0 18px 0;color:#1d2327;font-size:36px;line-height:1.1;">Dashboard Economía</h2>'
+                . $this->get_notice_html()
                 . $this->render_front_stats($totals)
                 . '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">'
                 . $this->render_front_category_form()
                 . $this->render_front_tx_form($categories)
                 . '</div>'
+                . '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">'
+                . $this->render_front_category_list($categories)
                 . $this->render_front_category_summary($summary)
+                . '</div>'
                 . '<div style="margin-top:16px;">' . $this->render_front_recent_transactions($rows) . '</div>
             </div>';
         }
