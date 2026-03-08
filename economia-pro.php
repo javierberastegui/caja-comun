@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 3.1.1
+ * Version: 3.2
  * Author: Loki
  */
 
@@ -12,6 +12,8 @@ if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
+    private const OPTION_FIXED_INCOME = 'ecopro_fixed_monthly_income';
+    private const OPTION_PROJECTION_MODE = 'ecopro_projection_mode';
     private const CRON_HOOK       = 'ecopro_daily_check';
 
     private string $table_transactions;
@@ -402,7 +404,14 @@ final class EconomiaPro {
             $start, $now
         ));
 
+        $mode = (string) get_option(self::OPTION_PROJECTION_MODE, 'linear');
+        $fixed_income = (float) get_option(self::OPTION_FIXED_INCOME, 0);
+
         $projected_income = $day_of_month > 0 ? ($income / $day_of_month) * $days_in_month : 0.0;
+        if ($mode === 'fixed_income' && $fixed_income > 0) {
+            $projected_income = $fixed_income;
+        }
+
         $projected_expense = $day_of_month > 0 ? ($expense / $day_of_month) * $days_in_month : 0.0;
         $projected_balance = $projected_income - $projected_expense;
 
@@ -415,6 +424,8 @@ final class EconomiaPro {
             'projected_balance' => $projected_balance,
             'day_of_month' => $day_of_month,
             'days_in_month' => $days_in_month,
+            'mode' => $mode,
+            'fixed_income' => $fixed_income,
         ];
     }
 
@@ -423,7 +434,7 @@ final class EconomiaPro {
         ob_start(); ?>
         <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
             <h2 style="margin-top:0;"><?php echo esc_html($title); ?></h2>
-            <p style="margin:0 0 14px 0;color:#50575e;">Mes <?php echo esc_html($p['period']); ?> · día <?php echo (int)$p['day_of_month']; ?> de <?php echo (int)$p['days_in_month']; ?></p>
+            <p style="margin:0 0 14px 0;color:#50575e;">Mes <?php echo esc_html($p['period']); ?> · día <?php echo (int)$p['day_of_month']; ?> de <?php echo (int)$p['days_in_month']; ?> · modo <?php echo esc_html($p['mode'] === 'fixed_income' ? 'ingreso fijo + gasto lineal' : 'lineal'); ?></p>
             <div style="display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:12px;">
                 <div style="border:1px solid #ddd;border-radius:8px;padding:12px;">
                     <strong>Ingreso proyectado</strong>
@@ -444,7 +455,7 @@ final class EconomiaPro {
 
     private function render_front_projection_box(array $p): string {
         $balance_class = $p['projected_balance'] >= 0 ? 'ecopro-ok' : 'ecopro-danger';
-        return '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Proyección fin de mes</h3><p class="ecopro-muted" style="margin-bottom:12px;">Mes '.esc_html($p['period']).' · día '.(int)$p['day_of_month'].' de '.(int)$p['days_in_month'].'</p><div class="ecopro-grid-3"><div class="ecopro-card"><strong>Ingreso proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_income'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Gasto proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_expense'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Balance proyectado</strong><div style="font-size:22px;margin-top:6px;"><span class="'.$balance_class.'">'.esc_html(number_format((float)$p['projected_balance'],2,',','.')).' €</span></div></div></div></div>';
+        return '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Proyección fin de mes</h3><p class="ecopro-muted" style="margin-bottom:12px;">Mes '.esc_html($p['period']).' · día '.(int)$p['day_of_month'].' de '.(int)$p['days_in_month'].' · modo '.esc_html($p['mode'] === 'fixed_income' ? 'ingreso fijo + gasto lineal' : 'lineal').'</p><div class="ecopro-grid-3"><div class="ecopro-card"><strong>Ingreso proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_income'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Gasto proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_expense'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Balance proyectado</strong><div style="font-size:22px;margin-top:6px;"><span class="'.$balance_class.'">'.esc_html(number_format((float)$p['projected_balance'],2,',','.')).' €</span></div></div></div></div>';
     }
 
     private function render_monthly_summary_box(array $rows, string $title = 'Resumen mensual'): string {
@@ -646,8 +657,16 @@ final class EconomiaPro {
                     <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
                         <h2 style="margin-top:0;">Ajustes</h2><p><code>[economia_dashboard]</code></p>
                         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>"><?php wp_nonce_field('ecopro_save_settings'); ?><input type="hidden" name="action" value="ecopro_save_settings">
+                            <?php $fixed_income = (float) get_option(self::OPTION_FIXED_INCOME, 0); $projection_mode = (string) get_option(self::OPTION_PROJECTION_MODE, 'linear'); ?>
                             <p><label><strong>Página frontend</strong></label><br><select name="ecopro_front_page" style="width:100%;max-width:360px;"><option value="0">— Sin sincronizar página —</option><?php foreach ($pages as $page): ?><option value="<?php echo esc_attr((string)$page->ID); ?>" <?php selected($page_id,(int)$page->ID); ?>><?php echo esc_html($page->post_title.' (#'.$page->ID.')'); ?></option><?php endforeach; ?></select></p>
                             <p><label><strong>Contraseña del frontend</strong></label><br><input type="password" name="eco_pass" placeholder="Escribe una nueva contraseña" style="width:100%;max-width:360px;"></p>
+                            <p><label><strong>Ingreso fijo mensual</strong></label><br><input type="number" step="0.01" min="0" name="ecopro_fixed_income" value="<?php echo esc_attr((string)$fixed_income); ?>" placeholder="Ej: 3600" style="width:100%;max-width:360px;"></p>
+                            <p><label><strong>Modo de proyección</strong></label><br>
+                                <select name="ecopro_projection_mode" style="width:100%;max-width:360px;">
+                                    <option value="linear" <?php selected($projection_mode, 'linear'); ?>>Lineal</option>
+                                    <option value="fixed_income" <?php selected($projection_mode, 'fixed_income'); ?>>Ingreso fijo + gasto lineal</option>
+                                </select>
+                            </p>
                             <p><button type="submit" class="button button-primary">Guardar ajustes</button></p>
                         </form>
                     </div>
@@ -739,7 +758,12 @@ final class EconomiaPro {
         check_admin_referer('ecopro_save_settings');
         $password = isset($_POST['eco_pass']) ? sanitize_text_field(wp_unslash($_POST['eco_pass'])) : '';
         $page_id  = isset($_POST['ecopro_front_page']) ? absint($_POST['ecopro_front_page']) : 0;
+        $fixed_income = isset($_POST['ecopro_fixed_income']) ? (float) wp_unslash($_POST['ecopro_fixed_income']) : 0.0;
+        $projection_mode = isset($_POST['ecopro_projection_mode']) ? sanitize_text_field(wp_unslash($_POST['ecopro_projection_mode'])) : 'linear';
+        if (!in_array($projection_mode, ['linear', 'fixed_income'], true)) { $projection_mode = 'linear'; }
         update_option(self::OPTION_PAGE_ID, $page_id, false);
+        update_option(self::OPTION_FIXED_INCOME, $fixed_income, false);
+        update_option(self::OPTION_PROJECTION_MODE, $projection_mode, false);
         if ($password !== '') {
             update_option(self::OPTION_PASSWORD, password_hash($password, PASSWORD_DEFAULT), false);
             if ($page_id > 0 && get_post($page_id) instanceof WP_Post) {
