@@ -1,9 +1,0 @@
-<div class="wrap ccf-admin-wrap">
-	<h1>Ingresos Mensuales</h1>
-	<form method="get"><input type="hidden" name="page" value="ccf-incomes"><input type="month" name="month_key" value="<?php echo esc_attr( $month_key ); ?>"><input type="number" name="user_id" placeholder="Usuario" value="<?php echo esc_attr( $_GET['user_id'] ?? '' ); ?>"><select name="status"><option value="">Estado</option><option value="confirmed">confirmado</option><option value="pending">pendiente</option></select><button class="button">Filtrar</button></form>
-	<form method="post"><?php wp_nonce_field( 'ccf_save_income_action' ); ?>
-	<table class="form-table"><tr><th>Mes</th><td><input type="month" name="month_key" value="<?php echo esc_attr( $month_key ); ?>" required></td></tr><tr><th>Usuario</th><td><input type="number" min="1" name="user_id" required></td></tr><tr><th>Monto</th><td><input type="number" step="0.01" min="0.01" name="amount" required></td></tr><tr><th>Estado</th><td><select name="status"><option value="confirmed">confirmado</option><option value="pending">pendiente</option></select></td></tr><tr><th>Notas</th><td><input type="text" name="notes" class="regular-text"></td></tr></table>
-	<p><button type="submit" class="button button-primary" name="ccf_save_income" value="1">Guardar Ingreso</button></p>
-	</form>
-	<table class="widefat striped"><thead><tr><th>ID</th><th>Mes</th><th>Usuario</th><th>Monto</th><th>Estado</th><th>Notas</th></tr></thead><tbody><?php foreach ( $incomes as $income ) : ?><tr><td><?php echo esc_html( $income['id'] ); ?></td><td><?php echo esc_html( $income['month_key'] ); ?></td><td><?php echo esc_html( $income['user_id'] ); ?></td><td><?php echo esc_html( number_format( (float) $income['amount'], 2 ) ); ?></td><td><?php echo esc_html( $income['status'] ); ?></td><td><?php echo esc_html( $income['notes'] ); ?></td></tr><?php endforeach; ?></tbody></table>
-</div>
