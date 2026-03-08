@@ -1,7 +1,15 @@
-Economia Pro v1.3
+Economia Pro
 Autor: Loki
 
-Notas:
-- Corrige el render admin simple.
-- Al activar, desactiva otras copias del mismo plugin si detecta versiones antiguas activas.
-- Shortcode frontend: [economia_dashboard]
+Estructura principal:
+- assets/css/frontend.css
+- assets/css/admin.css
+- assets/js/frontend.js
+- includes/
+- templates/
+
+Instalación:
+1. Sube la carpeta economia-pro o el ZIP desde Plugins > Añadir nuevo
+2. Activa el plugin
+3. Crea una página y añade el shortcode [economia_dashboard]
+4. Configura la contraseña y la página desde el panel del plugin
