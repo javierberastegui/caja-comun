@@ -352,3 +352,8 @@ canvas.ecopro-chart{
         display:none;
     }
 }
+
+
+.ecopro-progress > span.is-warn{
+    background:linear-gradient(90deg,#ffd166 0%, #ff9f1c 100%);
+}
