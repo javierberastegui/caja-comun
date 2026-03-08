@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 2.4.1
+ * Version: 2.4.3
  * Author: Loki
  */
 
@@ -250,9 +250,7 @@ final class EconomiaPro {
                         <option value="income" <?php selected($admin_selected_type === 'income'); ?>>Ingreso</option>
                         <option value="expense" <?php selected($admin_selected_type === 'expense'); ?>>Gasto</option>
                     </select>
-                    <select name="category_id" id="ecopro-admin-category" required>
-                        <?php echo $this->render_category_options($categories, $admin_selected_type, $admin_selected_cat); ?>
-                    </select>
+                    <select name="category_id" id="ecopro-admin-category" required><?php echo $this->render_category_options($categories, $admin_selected_type, $admin_selected_cat); ?></select>
                     <input type="number" step="0.01" min="0" name="amount" placeholder="Cantidad" value="<?php echo $edit_tx ? esc_attr((string)$edit_tx->amount) : ''; ?>" required>
                     <input type="text" name="description" placeholder="Descripción" value="<?php echo $edit_tx ? esc_attr($edit_tx->description) : ''; ?>" style="min-width:220px;" required>
                     <button class="button button-primary"><?php echo $edit_tx ? 'Actualizar' : 'Guardar'; ?></button>
@@ -263,9 +261,7 @@ final class EconomiaPro {
         </div></div>
         <script>
         (function(){
-            const categories = <?php echo wp_json_encode(array_map(function($cat){
-                return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type];
-            }, $categories)); ?>;
+            const categories = <?php echo wp_json_encode(array_map(function($cat){ return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type]; }, $categories)); ?>;
             function bindFilter(typeId, categoryId){
                 const typeEl = document.getElementById(typeId);
                 const catEl = document.getElementById(categoryId);
@@ -274,20 +270,24 @@ final class EconomiaPro {
                 function render(){
                     const selectedType = typeEl.value;
                     const previous = catEl.value || initialSelected;
-                    catEl.innerHTML = '<option value="">Categoría</option>';
+                    catEl.innerHTML = "";
+                    const placeholder = document.createElement("option");
+                    placeholder.value = "";
+                    placeholder.textContent = "Categoría";
+                    catEl.appendChild(placeholder);
                     categories.forEach(cat => {
                         if(cat.type !== selectedType) return;
-                        const opt = document.createElement('option');
+                        const opt = document.createElement("option");
                         opt.value = String(cat.id);
                         opt.textContent = cat.name;
                         if(String(cat.id) === String(previous)) opt.selected = true;
                         catEl.appendChild(opt);
                     });
                 }
-                typeEl.addEventListener('change', render);
+                typeEl.addEventListener("change", render);
                 render();
             }
-            bindFilter('ecopro-admin-type', 'ecopro-admin-category');
+            bindFilter("ecopro-admin-type", "ecopro-admin-category");
         })();
         </script>
         <?php
@@ -411,7 +411,7 @@ final class EconomiaPro {
         $amount = $is_edit ? esc_attr((string)$edit_tx->amount) : '';
         $description = $is_edit ? esc_attr($edit_tx->description) : '';
         $hiddenId = $is_edit ? '<input type="hidden" name="tx_id" value="'.(int)$edit_tx->id.'">' : '';
-        return '<div class="ecopro-card"><h3 style="margin:0 0 14px 0;color:#1d2327;">'.$title.'</h3>'.$cancel.'<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" class="ecopro-form">'. $nonce .'<input type="hidden" name="action" value="'.$action.'">'.$hiddenId.'<select name="type" id="ecopro-front-type" class="ecopro-select"><option value="income"'.selected($selected_type,'income',false).'>Ingreso</option><option value="expense"'.selected($selected_type,'expense',false).'>Gasto</option></select><select name="category_id" id="ecopro-front-category" class="ecopro-select" required>'.$this->render_category_options($categories, $selected_type, $selected_cat).'</select><input type="number" step="0.01" min="0" name="amount" placeholder="Cantidad" value="'.$amount.'" class="ecopro-input" required><input type="text" name="description" placeholder="Descripción" value="'.$description.'" class="ecopro-input" required><button type="submit" class="ecopro-btn">'.$button.'</button></form></div>';
+        return '<div class="ecopro-card"><h3 style="margin:0 0 14px 0;color:#1d2327;">'.$title.'</h3>'.$cancel.'<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" class="ecopro-form">'.$nonce.'<input type="hidden" name="action" value="'.$action.'">'.$hiddenId.'<select name="type" id="ecopro-front-type" class="ecopro-select"><option value="income"'.selected($selected_type,'income',false).'>Ingreso</option><option value="expense"'.selected($selected_type,'expense',false).'>Gasto</option></select><select name="category_id" id="ecopro-front-category" class="ecopro-select" required>'.$this->render_category_options($categories, $selected_type, $selected_cat).'</select><input type="number" step="0.01" min="0" name="amount" placeholder="Cantidad" value="'.$amount.'" class="ecopro-input" required><input type="text" name="description" placeholder="Descripción" value="'.$description.'" class="ecopro-input" required><button type="submit" class="ecopro-btn">'.$button.'</button></form></div>';
     }
 
     private function render_front_category_summary(array $items): string {
@@ -447,12 +447,9 @@ final class EconomiaPro {
         $summary = $this->get_front_category_summary();
         $edit_id = $this->get_edit_transaction_id();
         $edit_tx = $edit_id ? $this->get_transaction($edit_id) : null;
+        $categories_json = wp_json_encode(array_map(function($cat){ return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type]; }, $categories));
 
-        $categories_json = wp_json_encode(array_map(function($cat){
-            return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type];
-        }, $categories));
-
-        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div class="ecopro-grid-2">'.$this->render_front_category_list($categories).$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML='<option value="">Categoría</option>';categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement('option');opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener('change',render);render();}bindFilter('ecopro-front-type','ecopro-front-category');})();</script>';
+        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div class="ecopro-grid-2">'.$this->render_front_category_list($categories).$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
     }
 }
 new EconomiaPro();
