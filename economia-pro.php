@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 3.2.1
+ * Version: 3.2.2
  * Author: Loki
  */
 
@@ -491,7 +491,7 @@ final class EconomiaPro {
 
     private function render_front_projection_box(array $p): string {
         $balance_class = $p['projected_balance'] >= 0 ? 'ecopro-ok' : 'ecopro-danger';
-        return '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Proyección fin de mes</h3><p class="ecopro-muted" style="margin-bottom:12px;">Mes '.esc_html($p['period']).' · día '.(int)$p['day_of_month'].' de '.(int)$p['days_in_month'].' · patrón '.esc_html($p['pattern']).' · cálculo automático'</p><div class="ecopro-grid-3"><div class="ecopro-card"><strong>Ingreso proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_income'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Gasto proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_expense'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Balance proyectado</strong><div style="font-size:22px;margin-top:6px;"><span class="'.$balance_class.'">'.esc_html(number_format((float)$p['projected_balance'],2,',','.')).' €</span></div></div></div></div>';
+        return '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Proyección fin de mes</h3><p class="ecopro-muted" style="margin-bottom:12px;">Mes '.esc_html($p['period']).' · día '.(int)$p['day_of_month'].' de '.(int)$p['days_in_month'].' · patrón '.esc_html($p['pattern']).' · cálculo automático</p><p class="ecopro-muted" style="margin-bottom:12px;">Ingreso proyectado: media histórica automática si hay historial suficiente; si no, extrapolación lineal.</p><div class="ecopro-grid-3"><div class="ecopro-card"><strong>Ingreso proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_income'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Gasto proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_expense'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Balance proyectado</strong><div style="font-size:22px;margin-top:6px;"><span class="'.$balance_class.'">'.esc_html(number_format((float)$p['projected_balance'],2,',','.')).' €</span></div></div></div></div>';
     }
 
     private function render_monthly_summary_box(array $rows, string $title = 'Resumen mensual'): string {
