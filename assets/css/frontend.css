@@ -210,3 +210,36 @@ canvas.ecopro-chart{
     color: var(--ecopro-text-strong) !important;
     -webkit-text-fill-color: var(--ecopro-text-strong) !important;
 }
+
+
+/* v3.4.5 hard override for headings */
+.ecopro-wrap h3,
+.ecopro-card h3,
+.ecopro-wrap .ecopro-card h3{
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    text-shadow:0 2px 10px rgba(0,0,0,.32) !important;
+}
+
+
+/* v3.4.6 force ALL headings to white */
+.ecopro-wrap h1,
+.ecopro-wrap h2,
+.ecopro-wrap h3,
+.ecopro-wrap h4,
+.ecopro-wrap h5,
+.ecopro-wrap h6,
+.ecopro-card h1,
+.ecopro-card h2,
+.ecopro-card h3,
+.ecopro-card h4,
+.ecopro-card h5,
+.ecopro-card h6{
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    background:none !important;
+    -webkit-background-clip:border-box !important;
+    background-clip:border-box !important;
+    text-shadow:0 2px 10px rgba(0,0,0,.32) !important;
+    opacity:1 !important;
+}
