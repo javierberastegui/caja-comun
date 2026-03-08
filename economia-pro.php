@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 3.4.1
+ * Version: 3.4.2
  * Author: Loki
  */
 
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '3.4.1';
+    private const VERSION = '3.4.2';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
     private const CRON_HOOK       = 'ecopro_daily_check';
@@ -1004,7 +1004,7 @@ final class EconomiaPro {
             $income[] = (float)$r->income_total;
             $expense[] = (float)$r->expense_total;
         }
-        return '<div class="ecopro-card ecopro-reveal"><h3 style="margin:0 0 12px 0;color:#1d2327;">Evolución mensual</h3><div class="ecopro-chart-wrap"><canvas class="ecopro-chart" height="120" data-labels='' . esc_attr(wp_json_encode($labels)) . '' data-income='' . esc_attr(wp_json_encode($income)) . '' data-expense='' . esc_attr(wp_json_encode($expense)) . ''></canvas></div></div>';
+        return "<div class=\"ecopro-card ecopro-reveal\"><h3 style=\"margin:0 0 12px 0;color:#1d2327;\">Evolución mensual</h3><div class=\"ecopro-chart-wrap\"><canvas class=\"ecopro-chart\" height=\"120\" data-labels=\"" . esc_attr(wp_json_encode($labels)) . "\" data-income=\"" . esc_attr(wp_json_encode($income)) . "\" data-expense=\"" . esc_attr(wp_json_encode($expense)) . "\"></canvas></div></div>";
     }
 
 
