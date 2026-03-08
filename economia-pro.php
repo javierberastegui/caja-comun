@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 2.9
+ * Version: 3.0
  * Author: Loki
  */
 
@@ -838,6 +838,46 @@ final class EconomiaPro {
     }
 
 
+
+    private function render_front_monthly_chart_box(array $rows): string {
+        if (empty($rows)) return '';
+        $labels = [];
+        $income = [];
+        $expense = [];
+        foreach ($rows as $r) {
+            $labels[] = $r->period;
+            $income[] = (float)$r->income_total;
+            $expense[] = (float)$r->expense_total;
+        }
+        return '<div class="ecopro-card">
+            <h3 style="margin:0 0 12px 0;color:#1d2327;">Evolución mensual</h3>
+            <canvas id="ecoproChart" height="120"></canvas>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <script>
+            (function(){
+                const ctx=document.getElementById("ecoproChart");
+                if(!ctx) return;
+                new Chart(ctx,{
+                    type:"line",
+                    data:{
+                        labels:'.json_encode($labels).',
+                        datasets:[
+                            {label:"Ingresos",data:'.json_encode($income).',borderColor:"#46b450",backgroundColor:"rgba(70,180,80,0.2)",tension:0.3},
+                            {label:"Gastos",data:'.json_encode($expense).',borderColor:"#dc3232",backgroundColor:"rgba(220,50,50,0.2)",tension:0.3}
+                        ]
+                    },
+                    options:{
+                        responsive:true,
+                        plugins:{legend:{position:"top"}},
+                        scales:{y:{beginAtZero:true}}
+                    }
+                });
+            })();
+            </script>
+        </div>';
+    }
+
+
     private function render_front_monthly_summary_box(array $rows): string {
         $html = '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Resumen mensual</h3><div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Mes</th><th>Ingresos</th><th>Gastos</th><th>Balance</th></tr></thead><tbody>';
         if (!empty($rows)) {
@@ -903,7 +943,7 @@ final class EconomiaPro {
         $budget_overview = $this->get_budget_overview_cards($period);
         $categories_json = wp_json_encode(array_map(function($cat){ return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type]; }, $categories));
 
-        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
+        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
     }
 }
 new EconomiaPro();
