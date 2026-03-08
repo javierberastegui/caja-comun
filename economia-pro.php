@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 2.8
+ * Version: 2.8.1
  * Author: Loki
  */
 
@@ -831,7 +831,8 @@ final class EconomiaPro {
         if (!$this->frontend_access_granted()) return $this->front_css().'<form method="post" class="ecopro-wrap"><h2 class="ecopro-title">Acceso Economía</h2><p style="margin:0 0 18px 0;color:#50575e;">Introduce tu contraseña para acceder al panel financiero.</p><p style="margin:0 0 16px 0;"><input type="password" name="eco_pass" placeholder="Contraseña" class="ecopro-input" required></p><p style="margin:0;"><button type="submit" class="ecopro-btn">Entrar</button></p><input type="hidden" name="eco_login" value="1"></form>';
         $totals = $this->get_totals();
         $categories = $this->get_categories();
-        $rows = $this->get_transactions();
+        $filters = $this->get_filter_values();
+        $rows = $this->get_filtered_transactions($filters);
         $summary = $this->get_front_category_summary();
         $notifications = $this->get_notifications();
         $edit_id = $this->get_edit_transaction_id();
