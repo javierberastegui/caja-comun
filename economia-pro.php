@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 2.6.1
+ * Version: 2.7
  * Author: Loki
  */
 
@@ -35,6 +35,8 @@ final class EconomiaPro {
         add_action('admin_post_ecopro_save_settings', [$this,'save_settings']);
         add_action('admin_post_ecopro_add_category', [$this,'add_category']);
         add_action('admin_post_ecopro_save_budget', [$this,'save_budget']);
+        add_action('admin_post_ecopro_mark_notice_read', [$this,'mark_notice_read']);
+        add_action('admin_post_ecopro_mark_all_notices_read', [$this,'mark_all_notices_read']);
         add_action(self::CRON_HOOK, [$this,'run_daily_checks']);
         add_shortcode('economia_dashboard', [$this,'dashboard']);
     }
@@ -225,6 +227,27 @@ final class EconomiaPro {
         return $wpdb->get_results("SELECT n.*, c.name AS category_name FROM {$this->table_notifications} n LEFT JOIN {$this->table_categories} c ON c.id = n.category_id ORDER BY n.created_at DESC LIMIT 20");
     }
 
+
+    public function mark_notice_read(): void {
+        check_admin_referer('ecopro_mark_notice_read');
+        if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
+        global $wpdb;
+        $notice_id = isset($_POST['notice_id']) ? absint($_POST['notice_id']) : 0;
+        if ($notice_id <= 0) $this->safe_back_redirect('invalid');
+        $result = $wpdb->update($this->table_notifications, ['status' => 'read'], ['id' => $notice_id], ['%s'], ['%d']);
+        if ($result === false) { error_log('economia-pro mark_notice_read DB error: '.$wpdb->last_error); $this->safe_back_redirect('db_error'); }
+        $this->safe_back_redirect('notice_read');
+    }
+
+    public function mark_all_notices_read(): void {
+        check_admin_referer('ecopro_mark_all_notices_read');
+        if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
+        global $wpdb;
+        $result = $wpdb->query("UPDATE {$this->table_notifications} SET status = 'read' WHERE status = 'open'");
+        if ($result === false) { error_log('economia-pro mark_all_notices_read DB error: '.$wpdb->last_error); $this->safe_back_redirect('db_error'); }
+        $this->safe_back_redirect('all_notices_read');
+    }
+
     private function get_current_period(): string { return current_time('Y-m'); }
 
     private function get_totals(): array {
@@ -307,6 +330,8 @@ final class EconomiaPro {
             'tx_added'=>['ok','Movimiento guardado correctamente.'],
             'tx_updated'=>['ok','Movimiento actualizado correctamente.'],
             'budget_saved'=>['ok','Presupuesto guardado correctamente.'],
+            'notice_read'=>['ok','Alerta marcada como leída.'],
+            'all_notices_read'=>['ok','Todas las alertas abiertas se marcaron como leídas.'],
             'invalid'=>['err','Faltan datos o no son válidos.'],
             'type_mismatch'=>['err','La categoría no coincide con el tipo de movimiento.'],
             'db_error'=>['err','No se pudo guardar en la base de datos.'],
@@ -332,14 +357,38 @@ final class EconomiaPro {
     private function render_notifications_box(array $notifications): string {
         ob_start(); ?>
         <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
-            <h2 style="margin-top:0;">Alertas</h2>
-            <table class="widefat striped">
-                <thead><tr><th>Tipo</th><th>Mensaje</th><th>Fecha</th></tr></thead>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <h2 style="margin:0;">Alertas</h2>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('ecopro_mark_all_notices_read'); ?>
+                    <input type="hidden" name="action" value="ecopro_mark_all_notices_read">
+                    <button class="button">Marcar todas como leídas</button>
+                </form>
+            </div>
+            <table class="widefat striped" style="margin-top:16px;">
+                <thead><tr><th>Estado</th><th>Tipo</th><th>Mensaje</th><th>Fecha</th><th>Acción</th></tr></thead>
                 <tbody>
                 <?php if (!empty($notifications)): foreach ($notifications as $notice): ?>
-                    <tr><td><?php echo esc_html($notice->type); ?></td><td><?php echo esc_html($notice->message); ?></td><td><?php echo esc_html($notice->created_at); ?></td></tr>
+                    <tr>
+                        <td><?php echo $notice->status === 'open' ? 'Abierta' : 'Leída'; ?></td>
+                        <td><?php echo esc_html($notice->type); ?></td>
+                        <td><?php echo esc_html($notice->message); ?></td>
+                        <td><?php echo esc_html($notice->created_at); ?></td>
+                        <td>
+                            <?php if ($notice->status === 'open'): ?>
+                                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                                    <?php wp_nonce_field('ecopro_mark_notice_read'); ?>
+                                    <input type="hidden" name="action" value="ecopro_mark_notice_read">
+                                    <input type="hidden" name="notice_id" value="<?php echo (int)$notice->id; ?>">
+                                    <button class="button button-small">Marcar leída</button>
+                                </form>
+                            <?php else: ?>
+                                —
+                            <?php endif; ?>
+                        </td>
+                    </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="3">No hay alertas todavía.</td></tr>
+                    <tr><td colspan="5">No hay alertas todavía.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -643,9 +692,17 @@ final class EconomiaPro {
     }
 
     private function render_front_notifications_box(array $notifications): string {
-        $html = '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Alertas</h3><div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Tipo</th><th>Mensaje</th><th>Fecha</th></tr></thead><tbody>';
-        if (!empty($notifications)) foreach ($notifications as $notice) $html .= '<tr><td>'.esc_html($notice->type).'</td><td>'.esc_html($notice->message).'</td><td>'.esc_html($notice->created_at).'</td></tr>';
-        else $html .= '<tr><td colspan="3">No hay alertas todavía.</td></tr>';
+        $html = '<div class="ecopro-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;"><h3 style="margin:0;color:#1d2327;">Alertas</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'.wp_nonce_field('ecopro_mark_all_notices_read','_wpnonce',true,false).'<input type="hidden" name="action" value="ecopro_mark_all_notices_read"><button type="submit" class="ecopro-btn" style="padding:8px 12px;">Marcar todas</button></form></div><div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Estado</th><th>Tipo</th><th>Mensaje</th><th>Acción</th></tr></thead><tbody>';
+        if (!empty($notifications)) {
+            foreach ($notifications as $notice) {
+                $action = $notice->status === 'open'
+                    ? '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'.wp_nonce_field('ecopro_mark_notice_read','_wpnonce',true,false).'<input type="hidden" name="action" value="ecopro_mark_notice_read"><input type="hidden" name="notice_id" value="'.(int)$notice->id.'"><button type="submit" class="ecopro-btn" style="padding:8px 12px;">Leer</button></form>'
+                    : '—';
+                $html .= '<tr><td>'.($notice->status === 'open' ? 'Abierta' : 'Leída').'</td><td>'.esc_html($notice->type).'</td><td>'.esc_html($notice->message).'</td><td>'.$action.'</td></tr>';
+            }
+        } else {
+            $html .= '<tr><td colspan="4">No hay alertas todavía.</td></tr>';
+        }
         return $html.'</tbody></table></div></div>';
     }
 
