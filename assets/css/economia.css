@@ -1,0 +1,13 @@
+.eco-card {
+  background: #fff;
+  border: 1px solid #dcdcde;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  margin-top: 16px;
+}
+
+#eco-pro-front-app,
+#eco-pro-admin-app {
+  margin-top: 16px;
+}
