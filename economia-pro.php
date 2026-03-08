@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 3.5
+ * Version: 3.6
  * Author: Loki
  */
 
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '3.5';
+    private const VERSION = '3.6';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
     private const CRON_HOOK       = 'ecopro_daily_check';
@@ -410,6 +410,79 @@ final class EconomiaPro {
 
 
 
+
+    private function get_daily_expense_series(string $period = ''): array {
+        global $wpdb;
+        if ($period === '') {
+            $period = $this->get_current_period();
+        }
+        $start = $period . '-01 00:00:00';
+        $days_in_month = (int) date('t', strtotime($start));
+        $end = date('Y-m-d H:i:s', strtotime($start . ' +1 month'));
+
+        $rows = $wpdb->get_results($wpdb->prepare("
+            SELECT DAY(created_at) AS day_num, SUM(amount) AS total
+            FROM {$this->table_transactions}
+            WHERE type = 'expense' AND created_at >= %s AND created_at < %s
+            GROUP BY DAY(created_at)
+            ORDER BY day_num ASC
+        ", $start, $end));
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)$row->day_num] = (float)$row->total;
+        }
+
+        $series = [];
+        for ($day = 1; $day <= $days_in_month; $day++) {
+            $series[] = [
+                'day' => $day,
+                'amount' => isset($map[$day]) ? (float)$map[$day] : 0.0,
+            ];
+        }
+        return $series;
+    }
+
+    private function render_daily_expense_heatmap_admin(array $series, string $title = 'Mapa de gasto diario'): string {
+        $max = 0.0;
+        foreach ($series as $item) {
+            if ((float)$item['amount'] > $max) $max = (float)$item['amount'];
+        }
+        ob_start(); ?>
+        <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
+            <h2 style="margin-top:0;"><?php echo esc_html($title); ?></h2>
+            <div class="ecopro-heatmap">
+                <?php foreach ($series as $item):
+                    $amount = (float)$item['amount'];
+                    $intensity = $max > 0 ? max(0.08, min(1, $amount / $max)) : 0.06;
+                    $style = 'background:rgba(47,111,230,' . $intensity . ');';
+                    if ($amount <= 0) $style = 'background:rgba(0,0,0,0.05);';
+                    ?>
+                    <div class="ecopro-heatmap-day" title="<?php echo esc_attr('Día ' . $item['day'] . ': ' . number_format($amount, 2, ',', '.') . ' €'); ?>" style="<?php echo esc_attr($style); ?>">
+                        <span><?php echo (int)$item['day']; ?></span>
+                        <small><?php echo esc_html(number_format($amount, 0, ',', '.')); ?>€</small>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php return ob_get_clean();
+    }
+
+    private function render_front_daily_expense_heatmap(array $series): string {
+        $max = 0.0;
+        foreach ($series as $item) {
+            if ((float)$item['amount'] > $max) $max = (float)$item['amount'];
+        }
+        $html = '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Mapa de gasto diario</h2><div class="ecopro-heatmap">';
+        foreach ($series as $item) {
+            $amount = (float)$item['amount'];
+            $intensity = $max > 0 ? max(0.08, min(1, $amount / $max)) : 0.06;
+            $style = $amount > 0 ? 'background:rgba(79,141,255,' . $intensity . ');' : 'background:rgba(255,255,255,0.05);';
+            $html .= '<div class="ecopro-heatmap-day" title="' . esc_attr('Día ' . $item['day'] . ': ' . number_format($amount, 2, ',', '.') . ' €') . '" style="' . esc_attr($style) . '"><span>' . (int)$item['day'] . '</span><small>' . esc_html(number_format($amount, 0, ',', '.')) . '€</small></div>';
+        }
+        return $html . '</div></div>';
+    }
+
     private function get_expense_by_category(string $period = ''): array {
         global $wpdb;
         $where = ["t.type = 'expense'"];
@@ -780,6 +853,8 @@ final class EconomiaPro {
         $budget_overview = $this->get_budget_overview_cards($period);
         $projection = $this->get_month_projection();
         $expense_category_rows = $this->get_expense_by_category($period);
+        $daily_expense_series = $this->get_daily_expense_series($period);
+        $daily_expense_series = $this->get_daily_expense_series($period);
         $projection = $this->get_month_projection();
         ?>
         <div class="wrap"><h1>Economía Pro</h1><?php echo $this->get_notice_html(); ?>
@@ -1135,6 +1210,7 @@ final class EconomiaPro {
         $budget_overview = $this->get_budget_overview_cards($period);
         $projection = $this->get_month_projection();
         $expense_category_rows = $this->get_expense_by_category($period);
+        $daily_expense_series = $this->get_daily_expense_series($period);
         $categories_json = wp_json_encode(array_map(function($cat){ return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type]; }, $categories));
 
         return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).$this->render_front_projection_box($projection).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';

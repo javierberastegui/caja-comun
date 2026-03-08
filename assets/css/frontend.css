@@ -254,3 +254,40 @@ canvas.ecopro-chart{
     width:100% !important;
     max-width:100%;
 }
+
+
+/* v3.6 heatmap */
+.ecopro-heatmap{
+    display:grid;
+    grid-template-columns:repeat(7,minmax(0,1fr));
+    gap:10px;
+}
+.ecopro-heatmap-day{
+    min-height:72px;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:14px;
+    padding:10px 8px;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+    color:#eef4ff;
+    box-sizing:border-box;
+    transition:transform .18s ease, border-color .18s ease;
+}
+.ecopro-heatmap-day:hover{
+    transform:translateY(-1px);
+    border-color:rgba(255,255,255,.18);
+}
+.ecopro-heatmap-day span{
+    font-weight:700;
+    font-size:14px;
+}
+.ecopro-heatmap-day small{
+    color:#d7e6ff;
+    font-size:12px;
+}
+@media (max-width:640px){
+    .ecopro-heatmap{
+        grid-template-columns:repeat(4,minmax(0,1fr));
+    }
+}

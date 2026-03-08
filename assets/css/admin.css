@@ -27,3 +27,28 @@
     width:100% !important;
     max-width:100%;
 }
+
+
+.ecopro-heatmap{
+    display:grid;
+    grid-template-columns:repeat(7,minmax(0,1fr));
+    gap:10px;
+}
+.ecopro-heatmap-day{
+    min-height:72px;
+    border:1px solid rgba(0,0,0,.08);
+    border-radius:12px;
+    padding:10px 8px;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+    box-sizing:border-box;
+}
+.ecopro-heatmap-day span{
+    font-weight:700;
+    font-size:14px;
+}
+.ecopro-heatmap-day small{
+    color:#50575e;
+    font-size:12px;
+}
