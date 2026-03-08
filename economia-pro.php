@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 3.2.2
+ * Version: 3.3
  * Author: Loki
  */
 
@@ -893,7 +893,120 @@ final class EconomiaPro {
     }
 
     private function front_css(): string {
-        return '<style>.ecopro-wrap{max-width:980px;margin:24px auto;padding:24px;background:#fff;border:1px solid #dcdcde;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);color:#1d2327;box-sizing:border-box;width:calc(100% - 24px);}.ecopro-title{margin:0 0 18px 0;color:#1d2327;font-size:36px;line-height:1.1;word-break:break-word;}.ecopro-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px;}.ecopro-grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px;}.ecopro-grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0;}.ecopro-card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:18px;box-sizing:border-box;min-width:0;}.ecopro-form{display:flex;gap:10px;flex-wrap:wrap;}.ecopro-input,.ecopro-select{width:100%;padding:12px 14px;border:1px solid #c3c4c7;border-radius:10px;background:#fff;color:#1d2327;font-size:16px;box-sizing:border-box;min-width:0;}.ecopro-btn{display:inline-block;padding:12px 18px;border:0;border-radius:10px;background:#2271b1;color:#fff;font-weight:600;cursor:pointer;}.ecopro-table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;}.ecopro-table{width:100%;border-collapse:collapse;}.ecopro-table th,.ecopro-table td{text-align:left;padding:10px;border-bottom:1px solid #eee;vertical-align:top;}.ecopro-table th{border-bottom-color:#ddd;}.ecopro-muted{margin:0;color:#50575e;}.ecopro-link{color:#2271b1;text-decoration:none;font-weight:600;}.ecopro-danger{color:#b32d2e;font-weight:700;}.ecopro-ok{color:#1e4620;font-weight:700;}@media (max-width:900px){.ecopro-grid-3,.ecopro-grid-2,.ecopro-grid-4{grid-template-columns:1fr;}}@media (max-width:640px){.ecopro-wrap{padding:16px;width:calc(100% - 16px);margin:16px auto;}.ecopro-title{font-size:28px;}.ecopro-card{padding:14px;}.ecopro-form{display:grid;grid-template-columns:1fr;gap:10px;}.ecopro-btn{width:100%;}}</style>';
+        return '<style>
+        .ecopro-wrap{
+            max-width:980px;
+            margin:24px auto;
+            padding:24px;
+            background:linear-gradient(180deg,#244a84 0%,#173462 48%,#10264a 100%);
+            border:1px solid rgba(255,255,255,.10);
+            border-radius:28px;
+            box-shadow:0 30px 60px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.08);
+            color:#eef4ff;
+            box-sizing:border-box;
+            width:calc(100% - 24px);
+        }
+        .ecopro-title{
+            margin:0 0 18px 0;
+            color:#ffffff;
+            font-size:36px;
+            line-height:1.1;
+            word-break:break-word;
+            text-shadow:0 2px 12px rgba(0,0,0,.18);
+        }
+        .ecopro-grid-3,.ecopro-grid-2,.ecopro-grid-4{
+            display:grid;
+            gap:16px;
+            margin-bottom:16px;
+        }
+        .ecopro-grid-3{grid-template-columns:repeat(3,minmax(0,1fr));}
+        .ecopro-grid-2{grid-template-columns:repeat(2,minmax(0,1fr));}
+        .ecopro-grid-4{grid-template-columns:repeat(4,minmax(0,1fr));}
+        .ecopro-card{
+            background:linear-gradient(180deg,rgba(8,23,51,.72) 0%, rgba(8,22,47,.86) 100%);
+            border:1px solid rgba(120,170,255,.28);
+            border-radius:22px;
+            padding:18px;
+            box-sizing:border-box;
+            min-width:0;
+            box-shadow:0 12px 28px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.05);
+            backdrop-filter:blur(10px);
+        }
+        .ecopro-form{
+            display:flex;
+            gap:10px;
+            flex-wrap:wrap;
+        }
+        .ecopro-input,.ecopro-select{
+            width:100%;
+            padding:12px 14px;
+            border:1px solid rgba(122,167,255,.28);
+            border-radius:14px;
+            background:rgba(255,255,255,.07);
+            color:#eef4ff;
+            font-size:16px;
+            box-sizing:border-box;
+            min-width:0;
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+        }
+        .ecopro-input::placeholder{color:rgba(226,235,255,.68);}
+        .ecopro-select option{color:#111827;}
+        .ecopro-btn{
+            display:inline-block;
+            padding:12px 18px;
+            border:1px solid rgba(126,176,255,.35);
+            border-radius:14px;
+            background:linear-gradient(180deg,#4f8dff 0%,#2f6fe6 100%);
+            color:#fff;
+            font-weight:700;
+            cursor:pointer;
+            text-decoration:none;
+            box-shadow:0 12px 24px rgba(47,111,230,.28);
+        }
+        .ecopro-table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;}
+        .ecopro-table{
+            width:100%;
+            border-collapse:collapse;
+            color:#eef4ff;
+        }
+        .ecopro-table th,.ecopro-table td{
+            text-align:left;
+            padding:10px;
+            border-bottom:1px solid rgba(255,255,255,.08);
+            vertical-align:top;
+        }
+        .ecopro-table th{
+            color:#d7e6ff;
+            border-bottom-color:rgba(255,255,255,.14);
+        }
+        .ecopro-muted{margin:0;color:#bfd2f5;}
+        .ecopro-link{color:#8eb8ff;text-decoration:none;font-weight:700;}
+        .ecopro-danger{color:#ff8c8c;font-weight:700;}
+        .ecopro-ok{color:#86f0b0;font-weight:700;}
+        .ecopro-card strong{color:#ffffff;}
+        @media (max-width:900px){
+            .ecopro-grid-3,.ecopro-grid-2,.ecopro-grid-4{grid-template-columns:1fr;}
+        }
+        @media (max-width:640px){
+            .ecopro-wrap{
+                padding:16px;
+                width:calc(100% - 16px);
+                margin:16px auto;
+                border-radius:24px;
+            }
+            .ecopro-title{font-size:28px;}
+            .ecopro-card{
+                padding:14px;
+                border-radius:18px;
+            }
+            .ecopro-form{
+                display:grid;
+                grid-template-columns:1fr;
+                gap:10px;
+            }
+            .ecopro-btn{width:100%;}
+        }
+        </style>';
     }
 
     private function render_front_stats(array $totals): string {
