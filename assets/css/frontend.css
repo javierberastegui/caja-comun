@@ -243,3 +243,14 @@ canvas.ecopro-chart{
     text-shadow:0 2px 10px rgba(0,0,0,.32) !important;
     opacity:1 !important;
 }
+
+
+/* v3.5 extra chart polish */
+.ecopro-chart-wrap{
+    position:relative;
+    min-height:280px;
+}
+.ecopro-chart-wrap canvas{
+    width:100% !important;
+    max-width:100%;
+}
