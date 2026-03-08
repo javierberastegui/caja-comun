@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 2.7
+ * Version: 2.8
  * Author: Loki
  */
 
@@ -37,6 +37,7 @@ final class EconomiaPro {
         add_action('admin_post_ecopro_save_budget', [$this,'save_budget']);
         add_action('admin_post_ecopro_mark_notice_read', [$this,'mark_notice_read']);
         add_action('admin_post_ecopro_mark_all_notices_read', [$this,'mark_all_notices_read']);
+        add_action('admin_post_ecopro_export_csv', [$this,'export_csv']);
         add_action(self::CRON_HOOK, [$this,'run_daily_checks']);
         add_shortcode('economia_dashboard', [$this,'dashboard']);
     }
@@ -262,6 +263,74 @@ final class EconomiaPro {
         return $wpdb->get_results("SELECT * FROM {$this->table_categories} ORDER BY type ASC, name ASC");
     }
 
+
+    private function get_filter_values(): array {
+        $month = isset($_GET['eco_month']) ? sanitize_text_field(wp_unslash($_GET['eco_month'])) : '';
+        $type = isset($_GET['eco_type']) ? sanitize_text_field(wp_unslash($_GET['eco_type'])) : '';
+        $category_id = isset($_GET['eco_category']) ? absint($_GET['eco_category']) : 0;
+        if ($month !== '' && !preg_match('/^\d{4}-\d{2}$/', $month)) { $month = ''; }
+        if (!in_array($type, ['', 'income', 'expense'], true)) { $type = ''; }
+        return ['month' => $month, 'type' => $type, 'category_id' => $category_id];
+    }
+
+    private function get_filtered_transactions(array $filters, int $limit = 50): array {
+        global $wpdb;
+        $where = ["1=1"];
+        $params = [];
+        if ($filters['type'] !== '') {
+            $where[] = "t.type = %s";
+            $params[] = $filters['type'];
+        }
+        if ($filters['category_id'] > 0) {
+            $where[] = "t.category_id = %d";
+            $params[] = $filters['category_id'];
+        }
+        if ($filters['month'] !== '') {
+            $start = $filters['month'] . '-01 00:00:00';
+            $end = date('Y-m-d H:i:s', strtotime($start . ' +1 month'));
+            $where[] = "t.created_at >= %s";
+            $where[] = "t.created_at < %s";
+            $params[] = $start;
+            $params[] = $end;
+        }
+        $sql = "SELECT t.*, c.name AS category_name
+                FROM {$this->table_transactions} t
+                LEFT JOIN {$this->table_categories} c ON c.id=t.category_id
+                WHERE " . implode(' AND ', $where) . "
+                ORDER BY t.id DESC";
+        if ($limit > 0) {
+            $sql .= " LIMIT " . (int) $limit;
+        }
+        if (!empty($params)) {
+            $sql = $wpdb->prepare($sql, ...$params);
+        }
+        return $wpdb->get_results($sql);
+    }
+
+    public function export_csv(): void {
+        if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
+        $filters = $this->get_filter_values();
+        $rows = $this->get_filtered_transactions($filters, 0);
+        nocache_headers();
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename=economia-pro-movimientos.csv');
+        $out = fopen('php://output', 'w');
+        fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
+        fputcsv($out, ['ID', 'Tipo', 'Categoria', 'Cantidad', 'Descripcion', 'Fecha'], ';');
+        foreach ($rows as $r) {
+            fputcsv($out, [
+                (int) $r->id,
+                $r->type === 'income' ? 'Ingreso' : 'Gasto',
+                $r->category_name ?: '—',
+                number_format((float)$r->amount, 2, ',', '.'),
+                $r->description,
+                $r->created_at,
+            ], ';');
+        }
+        fclose($out);
+        exit;
+    }
+
     private function get_transactions(): array {
         global $wpdb;
         return $wpdb->get_results("SELECT t.*, c.name AS category_name FROM {$this->table_transactions} t LEFT JOIN {$this->table_categories} c ON c.id=t.category_id ORDER BY t.id DESC LIMIT 50");
@@ -441,7 +510,8 @@ final class EconomiaPro {
     public function admin_page(): void {
         if (!current_user_can('manage_options')) wp_die('No autorizado.');
         $totals = $this->get_totals();
-        $rows = $this->get_transactions();
+        $filters = $this->get_filter_values();
+        $rows = $this->get_filtered_transactions($filters);
         $categories = $this->get_categories();
         $notifications = $this->get_notifications();
         $page_id=(int)get_option(self::OPTION_PAGE_ID,0);
@@ -493,6 +563,24 @@ final class EconomiaPro {
                             <button class="button button-primary"><?php echo $edit_tx ? 'Actualizar' : 'Guardar'; ?></button>
                         </form>
                         <h2 style="margin:24px 0 12px;">Movimientos</h2>
+                        <form method="get" action="" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+                            <input type="hidden" name="page" value="eco-pro">
+                            <input type="month" name="eco_month" value="<?php echo esc_attr($filters['month']); ?>">
+                            <select name="eco_type">
+                                <option value="" <?php selected($filters['type'], ''); ?>>Todos</option>
+                                <option value="income" <?php selected($filters['type'], 'income'); ?>>Ingreso</option>
+                                <option value="expense" <?php selected($filters['type'], 'expense'); ?>>Gasto</option>
+                            </select>
+                            <select name="eco_category">
+                                <option value="0">Todas las categorías</option>
+                                <?php foreach($categories as $cat): ?>
+                                    <option value="<?php echo (int)$cat->id; ?>" <?php selected((int)$filters['category_id'], (int)$cat->id); ?>><?php echo esc_html($cat->name); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button class="button">Filtrar</button>
+                            <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=eco-pro')); ?>">Reset</a>
+                            <button class="button button-secondary" type="submit" formaction="<?php echo esc_url(admin_url('admin-post.php?action=ecopro_export_csv')); ?>" formmethod="get">Exportar CSV</button>
+                        </form>
                         <table class="widefat striped"><thead><tr><th>ID</th><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Descripción</th><th>Fecha</th><th>Acción</th></tr></thead><tbody><?php if(!empty($rows)): foreach($rows as $r): ?><tr><td><?php echo (int)$r->id; ?></td><td><?php echo $r->type==='income'?'Ingreso':'Gasto'; ?></td><td><?php echo esc_html($r->category_name ?: '—'); ?></td><td><?php echo esc_html(number_format((float)$r->amount,2,',','.')); ?> €</td><td><?php echo esc_html($r->description); ?></td><td><?php echo esc_html($r->created_at); ?></td><td><a href="<?php echo esc_url(admin_url('admin.php?page=eco-pro&edit_tx='.(int)$r->id)); ?>">Editar</a></td></tr><?php endforeach; else: ?><tr><td colspan="7">No hay movimientos todavía.</td></tr><?php endif; ?></tbody></table>
                     </div>
                     <?php echo $this->render_budget_box_admin($categories, $period, $budget_overview, $budget_rows); ?>
@@ -713,8 +801,19 @@ final class EconomiaPro {
         return $html.'</ul></div>';
     }
 
-    private function render_front_recent_transactions(array $rows): string {
-        $html = '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Últimos movimientos</h3>';
+    private function render_front_recent_transactions(array $rows, array $categories, array $filters): string {
+        $export_url = esc_url(add_query_arg(array_filter([
+            'action' => 'ecopro_export_csv',
+            'eco_month' => $filters['month'],
+            'eco_type' => $filters['type'],
+            'eco_category' => $filters['category_id'] > 0 ? (string)$filters['category_id'] : '',
+        ], function($v){ return $v !== '' && $v !== null; }), admin_url('admin-post.php')));
+        $html = '<div class="ecopro-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><h3 style="margin:0;color:#1d2327;">Últimos movimientos</h3><a class="ecopro-btn" href="'.$export_url.'" style="text-decoration:none;">Exportar CSV</a></div>';
+        $html .= '<form method="get" action="" class="ecopro-form" style="margin-top:12px;margin-bottom:12px;"><input type="month" name="eco_month" value="'.esc_attr($filters['month']).'" class="ecopro-input"><select name="eco_type" class="ecopro-select"><option value="">Todos</option><option value="income"'.selected($filters['type'],'income',false).'>Ingreso</option><option value="expense"'.selected($filters['type'],'expense',false).'>Gasto</option></select><select name="eco_category" class="ecopro-select"><option value="0">Todas las categorías</option>';
+        foreach ($categories as $cat) {
+            $html .= '<option value="'.(int)$cat->id.'"'.selected((int)$filters['category_id'], (int)$cat->id, false).'>'.esc_html($cat->name).'</option>';
+        }
+        $html .= '</select><button type="submit" class="ecopro-btn">Filtrar</button><a class="ecopro-link" href="'.$this->current_url_with(['eco_month'=>null,'eco_type'=>null,'eco_category'=>null]).'">Reset</a></form>';
         if (empty($rows)) return $html.'<p class="ecopro-muted">No hay movimientos todavía.</p></div>';
         $html .= '<div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Descripción</th><th>Acción</th></tr></thead><tbody>';
         foreach ($rows as $r) { $edit_url = $this->current_url_with(['edit_tx' => (int)$r->id]); $html .= '<tr><td>'.($r->type==='income'?'Ingreso':'Gasto').'</td><td>'.esc_html($r->category_name ?: '—').'</td><td>'.esc_html(number_format((float)$r->amount,2,',','.')).' €</td><td>'.esc_html($r->description).'</td><td><a class="ecopro-link" href="'.$edit_url.'">Editar</a></td></tr>'; }
@@ -742,7 +841,7 @@ final class EconomiaPro {
         $budget_overview = $this->get_budget_overview_cards($period);
         $categories_json = wp_json_encode(array_map(function($cat){ return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type]; }, $categories));
 
-        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_notifications_box($notifications).$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
+        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_notifications_box($notifications).$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
     }
 }
 new EconomiaPro();
