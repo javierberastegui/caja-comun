@@ -3,5 +3,5 @@
   if (!root) {
     return;
   }
-  root.innerHTML = '<p>Panel financiero listo para siguientes versiones.</p>';
+  root.innerHTML = '<p>Frontend conectado correctamente. Aquí irá el dashboard en v2.</p>';
 })();

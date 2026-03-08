@@ -11,7 +11,8 @@ final class Installer
         self::createTables();
         self::addCapabilities();
         Cron::schedule();
-        Page_Provisioner::ensurePage();
+        update_option('eco_pro_needs_setup', 'yes');
+        set_transient('eco_pro_activation_redirect', '1', 60);
         flush_rewrite_rules();
     }
 
