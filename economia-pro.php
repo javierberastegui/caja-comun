@@ -1,41 +1,105 @@
+
 <?php
 /**
  * Plugin Name: Economia Pro
- * Description: Sistema financiero doméstico con tablas propias, shortcode y cron diario.
- * Version: 1.1.0
+ * Description: Sistema financiero doméstico.
+ * Version: 1.2
  * Author: Loki
- * Text Domain: economia-pro
  */
 
-declare(strict_types=1);
+if (!defined('ABSPATH')) exit;
 
-if (!defined('ABSPATH')) {
-    exit;
+class EcoPro {
+
+    public function __construct() {
+        add_action('admin_menu', [$this,'menu']);
+        add_shortcode('economia_dashboard', [$this,'shortcode']);
+        add_action('admin_post_ecopro_save_password', [$this,'save_password']);
+    }
+
+    public function menu() {
+        add_menu_page(
+            'Economía Pro',
+            'Economía',
+            'manage_options',
+            'eco-pro',
+            [$this,'admin_page'],
+            'dashicons-chart-line',
+            26
+        );
+    }
+
+    public function admin_page() {
+        $pass = get_option('ecopro_front_password','');
+        ?>
+        <div class="wrap">
+            <h1>Economía Pro</h1>
+
+            <div style="background:#fff;padding:20px;border:1px solid #ddd;border-radius:6px;max-width:700px;">
+                <h2>Configurar acceso frontend</h2>
+                <p>Pega este shortcode en la página donde quieras mostrar el panel:</p>
+                <code>[economia_dashboard]</code>
+
+                <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
+                    <input type="hidden" name="action" value="ecopro_save_password">
+
+                    <p>
+                        <label><strong>Contraseña del frontend</strong></label><br>
+                        <input type="password" name="eco_pass" style="width:300px" placeholder="Elige una contraseña">
+                    </p>
+
+                    <p>
+                        <button class="button button-primary">Guardar contraseña</button>
+                    </p>
+                </form>
+            </div>
+
+        </div>
+        <?php
+    }
+
+    public function save_password() {
+        if (!current_user_can('manage_options')) wp_die();
+
+        $pass = sanitize_text_field($_POST['eco_pass'] ?? '');
+
+        if ($pass) {
+            update_option('ecopro_front_password', password_hash($pass, PASSWORD_DEFAULT));
+        }
+
+        wp_redirect(admin_url('admin.php?page=eco-pro'));
+        exit;
+    }
+
+    public function shortcode() {
+
+        $stored = get_option('ecopro_front_password','');
+
+        if (!$stored) {
+            return "<p>El administrador todavía no ha configurado la contraseña.</p>";
+        }
+
+        if (!isset($_POST['eco_login'])) {
+            return '
+            <form method="post">
+                <p><strong>Acceso Economía</strong></p>
+                <input type="password" name="eco_pass">
+                <button>Entrar</button>
+                <input type="hidden" name="eco_login" value="1">
+            </form>';
+        }
+
+        $pass = $_POST['eco_pass'] ?? '';
+
+        if (!password_verify($pass, $stored)) {
+            return "<p>Contraseña incorrecta.</p>";
+        }
+
+        return "<div style='padding:20px;background:#fff;border:1px solid #ddd'>
+        <h2>Dashboard Economía</h2>
+        <p>Sin transacciones aún.</p>
+        </div>";
+    }
 }
 
-define('ECO_PRO_VERSION', '1.1.0');
-define('ECO_PRO_FILE', __FILE__);
-define('ECO_PRO_PATH', plugin_dir_path(__FILE__));
-define('ECO_PRO_URL', plugin_dir_url(__FILE__));
-
-require_once ECO_PRO_PATH . 'includes/Core/Plugin.php';
-require_once ECO_PRO_PATH . 'includes/Core/Installer.php';
-require_once ECO_PRO_PATH . 'includes/Core/Page_Provisioner.php';
-require_once ECO_PRO_PATH . 'includes/Core/Cron.php';
-require_once ECO_PRO_PATH . 'includes/Domain/DTO/TransactionDTO.php';
-require_once ECO_PRO_PATH . 'includes/Domain/Repository/TransactionRepositoryInterface.php';
-require_once ECO_PRO_PATH . 'includes/Domain/Service/Sanitizer.php';
-require_once ECO_PRO_PATH . 'includes/Domain/Service/FinanceService.php';
-require_once ECO_PRO_PATH . 'includes/Domain/Service/NotificationService.php';
-require_once ECO_PRO_PATH . 'includes/Infrastructure/Repository/WpdbTransactionRepository.php';
-require_once ECO_PRO_PATH . 'includes/Http/Permissions.php';
-require_once ECO_PRO_PATH . 'includes/Http/RestController.php';
-require_once ECO_PRO_PATH . 'includes/Admin/Menu.php';
-require_once ECO_PRO_PATH . 'includes/Admin/Assets.php';
-
-register_activation_hook(__FILE__, [EcoPro\Core\Installer::class, 'activate']);
-register_deactivation_hook(__FILE__, [EcoPro\Core\Cron::class, 'deactivate']);
-
-add_action('plugins_loaded', static function (): void {
-    (new EcoPro\Core\Plugin())->boot();
-});
+new EcoPro();
