@@ -291,3 +291,13 @@ canvas.ecopro-chart{
         grid-template-columns:repeat(4,minmax(0,1fr));
     }
 }
+
+
+/* v3.7 smooth UI polish */
+.ecopro-card{
+    transition:transform .25s ease, box-shadow .25s ease;
+}
+.ecopro-card:hover{
+    transform:translateY(-2px);
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+}

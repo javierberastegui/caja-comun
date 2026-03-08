@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 3.6
+ * Version: 3.7
  * Author: Loki
  */
 
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '3.6';
+    private const VERSION = '3.7';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
     private const CRON_HOOK       = 'ecopro_daily_check';
@@ -43,6 +43,13 @@ final class EconomiaPro {
         add_action('admin_post_ecopro_export_csv', [$this,'export_csv']);
         add_action(self::CRON_HOOK, [$this,'run_daily_checks']);
         add_shortcode('economia_dashboard', [$this,'dashboard']);
+        wp_enqueue_script(
+            'ecopro-animations',
+            plugin_dir_url(__FILE__) . 'assets/js/animations.js',
+            [],
+            self::VERSION,
+            true
+        );
     }
 
 
