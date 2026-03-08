@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 3.4.6
+ * Version: 3.4.7
  * Author: Loki
  */
 
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '3.4.6';
+    private const VERSION = '3.4.7';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
     private const CRON_HOOK       = 'ecopro_daily_check';
@@ -525,7 +525,7 @@ final class EconomiaPro {
 
     private function render_front_projection_box(array $p): string {
         $balance_class = $p['projected_balance'] >= 0 ? 'ecopro-ok' : 'ecopro-danger';
-        return '<div class="ecopro-card ecopro-reveal"><h3 style="margin:0 0 12px 0;color:#1d2327;">Proyección fin de mes</h3><p class="ecopro-muted" style="margin-bottom:12px;">Mes '.esc_html($p['period']).' · día '.(int)$p['day_of_month'].' de '.(int)$p['days_in_month'].' · patrón '.esc_html($p['pattern']).' · cálculo automático</p><p class="ecopro-muted" style="margin-bottom:12px;">Ingreso proyectado: media histórica automática si hay historial suficiente; si no, extrapolación lineal.</p><div class="ecopro-grid-3"><div class="ecopro-card"><strong>Ingreso proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_income'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Gasto proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_expense'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Balance proyectado</strong><div style="font-size:22px;margin-top:6px;"><span class="'.$balance_class.'">'.esc_html(number_format((float)$p['projected_balance'],2,',','.')).' €</span></div></div></div></div>';
+        return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Proyección fin de mes</h2><p class="ecopro-muted" style="margin-bottom:12px;">Mes '.esc_html($p['period']).' · día '.(int)$p['day_of_month'].' de '.(int)$p['days_in_month'].' · patrón '.esc_html($p['pattern']).' · cálculo automático</p><p class="ecopro-muted" style="margin-bottom:12px;">Ingreso proyectado: media histórica automática si hay historial suficiente; si no, extrapolación lineal.</p><div class="ecopro-grid-3"><div class="ecopro-card"><strong>Ingreso proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_income'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Gasto proyectado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_expense'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Balance proyectado</strong><div style="font-size:22px;margin-top:6px;"><span class="'.$balance_class.'">'.esc_html(number_format((float)$p['projected_balance'],2,',','.')).' €</span></div></div></div></div>';
     }
 
     private function render_monthly_summary_box(array $rows, string $title = 'Resumen mensual'): string {
@@ -939,11 +939,11 @@ final class EconomiaPro {
     }
 
     private function render_front_category_form(): string {
-        return '<div class="ecopro-card ecopro-reveal"><h3 style="margin:0 0 14px 0;color:#1d2327;">Crear categoría</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" class="ecopro-form">'.wp_nonce_field('ecopro_add_category','_wpnonce',true,false).'<input type="hidden" name="action" value="ecopro_add_category"><select name="type" class="ecopro-select"><option value="income">Ingreso</option><option value="expense">Gasto</option></select><input type="text" name="name" placeholder="Nueva categoría" class="ecopro-input" required><button type="submit" class="ecopro-btn">Añadir</button></form></div>';
+        return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 14px 0;color:#ffffff;">Crear categoría</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" class="ecopro-form">'.wp_nonce_field('ecopro_add_category','_wpnonce',true,false).'<input type="hidden" name="action" value="ecopro_add_category"><select name="type" class="ecopro-select"><option value="income">Ingreso</option><option value="expense">Gasto</option></select><input type="text" name="name" placeholder="Nueva categoría" class="ecopro-input" required><button type="submit" class="ecopro-btn">Añadir</button></form></div>';
     }
 
     private function render_front_category_list(array $categories): string {
-        $html = '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Categorías disponibles</h3>';
+        $html = '<div class="ecopro-card"><h2 style="margin:0 0 12px 0;color:#ffffff;">Categorías disponibles</h2>';
         if (empty($categories)) return $html.'<p class="ecopro-muted">No hay categorías todavía.</p></div>';
         $html .= '<div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>ID</th><th>Nombre</th><th>Tipo</th></tr></thead><tbody>';
         foreach ($categories as $cat) $html .= '<tr><td>'.(int)$cat->id.'</td><td>'.esc_html($cat->name).'</td><td>'.($cat->type==='income'?'Ingreso':'Gasto').'</td></tr>';
@@ -962,13 +962,13 @@ final class EconomiaPro {
         $amount = $is_edit ? esc_attr((string)$edit_tx->amount) : '';
         $description = $is_edit ? esc_attr($edit_tx->description) : '';
         $hiddenId = $is_edit ? '<input type="hidden" name="tx_id" value="'.(int)$edit_tx->id.'">' : '';
-        return '<div class="ecopro-card ecopro-reveal"><h3 style="margin:0 0 14px 0;color:#1d2327;">'.$title.'</h3>'.$cancel.'<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" class="ecopro-form">'.$nonce.'<input type="hidden" name="action" value="'.$action.'">'.$hiddenId.'<select name="type" id="ecopro-front-type" class="ecopro-select"><option value="income"'.selected($selected_type,'income',false).'>Ingreso</option><option value="expense"'.selected($selected_type,'expense',false).'>Gasto</option></select><select name="category_id" id="ecopro-front-category" class="ecopro-select" required>'.$this->render_category_options($categories, $selected_type, $selected_cat).'</select><input type="number" step="0.01" min="0" name="amount" placeholder="Cantidad" value="'.$amount.'" class="ecopro-input" required><input type="text" name="description" placeholder="Descripción" value="'.$description.'" class="ecopro-input" required><button type="submit" class="ecopro-btn">'.$button.'</button></form></div>';
+        return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 14px 0;color:#ffffff;">'.$title.'</h2>'.$cancel.'<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" class="ecopro-form">'.$nonce.'<input type="hidden" name="action" value="'.$action.'">'.$hiddenId.'<select name="type" id="ecopro-front-type" class="ecopro-select"><option value="income"'.selected($selected_type,'income',false).'>Ingreso</option><option value="expense"'.selected($selected_type,'expense',false).'>Gasto</option></select><select name="category_id" id="ecopro-front-category" class="ecopro-select" required>'.$this->render_category_options($categories, $selected_type, $selected_cat).'</select><input type="number" step="0.01" min="0" name="amount" placeholder="Cantidad" value="'.$amount.'" class="ecopro-input" required><input type="text" name="description" placeholder="Descripción" value="'.$description.'" class="ecopro-input" required><button type="submit" class="ecopro-btn">'.$button.'</button></form></div>';
     }
 
     private function render_front_budget_box(array $categories, string $period, array $overview, array $rows): string {
         $options = '';
         foreach ($categories as $cat) { if ($cat->type !== 'expense') continue; $options .= '<option value="'.(int)$cat->id.'">'.esc_html($cat->name).'</option>'; }
-        $html = '<div class="ecopro-card"><h3 style="margin:0 0 14px 0;color:#1d2327;">Presupuestos</h3>';
+        $html = '<div class="ecopro-card"><h2 style="margin:0 0 14px 0;color:#ffffff;">Presupuestos</h2>';
         $html .= '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" class="ecopro-form">'.wp_nonce_field('ecopro_save_budget','_wpnonce',true,false).'<input type="hidden" name="action" value="ecopro_save_budget"><input type="month" name="period_month" value="'.esc_attr($period).'" class="ecopro-input" required><select name="category_id" class="ecopro-select" required><option value="">Categoría gasto</option>'.$options.'</select><input type="number" step="0.01" min="0" name="amount" placeholder="Presupuesto" class="ecopro-input" required><button type="submit" class="ecopro-btn">Guardar presupuesto</button></form>';
         $html .= '<div class="ecopro-grid-4"><div class="ecopro-card"><strong>Presupuesto</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format($overview['budget_total'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Gastado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format($overview['spent_total'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Restante</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format($overview['remaining'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Alertas</strong><div style="font-size:22px;margin-top:6px;">'.(int)$overview['over_count'].'</div></div></div>';
         $html .= '<div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Categoría</th><th>Presupuesto</th><th>Gastado</th><th>Estado</th></tr></thead><tbody>';
@@ -1009,7 +1009,7 @@ final class EconomiaPro {
 
 
     private function render_front_monthly_summary_box(array $rows): string {
-        $html = '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Resumen mensual</h3><div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Mes</th><th>Ingresos</th><th>Gastos</th><th>Balance</th></tr></thead><tbody>';
+        $html = '<div class="ecopro-card"><h2 style="margin:0 0 12px 0;color:#ffffff;">Resumen mensual</h2><div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Mes</th><th>Ingresos</th><th>Gastos</th><th>Balance</th></tr></thead><tbody>';
         if (!empty($rows)) {
             foreach ($rows as $row) {
                 $income = (float) $row->income_total;
@@ -1026,7 +1026,7 @@ final class EconomiaPro {
 
     private function render_front_category_summary(array $items): string {
         if (empty($items)) return '';
-        $html = '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Estadísticas por categoría</h3><ul style="margin:0;padding-left:18px;color:#50575e;font-size:16px;">';
+        $html = '<div class="ecopro-card"><h2 style="margin:0 0 12px 0;color:#ffffff;">Estadísticas por categoría</h2><ul style="margin:0;padding-left:18px;color:#50575e;font-size:16px;">';
         foreach ($items as $item) $html .= '<li><strong>'.esc_html($item->name).'</strong> ('.($item->type==='income'?'Ingreso':'Gasto').'): '.esc_html(number_format((float)$item->total,2,',','.')).' €</li>';
         return $html.'</ul></div>';
     }
@@ -1038,7 +1038,7 @@ final class EconomiaPro {
             'eco_type' => $filters['type'],
             'eco_category' => $filters['category_id'] > 0 ? (string)$filters['category_id'] : '',
         ], function($v){ return $v !== '' && $v !== null; }), admin_url('admin-post.php')));
-        $html = '<div class="ecopro-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><h3 style="margin:0;color:#1d2327;">Últimos movimientos</h3><a class="ecopro-btn" href="'.$export_url.'" style="text-decoration:none;">Exportar CSV</a></div>';
+        $html = '<div class="ecopro-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><h2 style="margin:0;color:#ffffff;">Últimos movimientos</h2><a class="ecopro-btn" href="'.$export_url.'" style="text-decoration:none;">Exportar CSV</a></div>';
         $html .= '<form method="get" action="" class="ecopro-form" style="margin-top:12px;margin-bottom:12px;"><input type="month" name="eco_month" value="'.esc_attr($filters['month']).'" class="ecopro-input"><select name="eco_type" class="ecopro-select"><option value="">Todos</option><option value="income"'.selected($filters['type'],'income',false).'>Ingreso</option><option value="expense"'.selected($filters['type'],'expense',false).'>Gasto</option></select><select name="eco_category" class="ecopro-select"><option value="0">Todas las categorías</option>';
         foreach ($categories as $cat) {
             $html .= '<option value="'.(int)$cat->id.'"'.selected((int)$filters['category_id'], (int)$cat->id, false).'>'.esc_html($cat->name).'</option>';
