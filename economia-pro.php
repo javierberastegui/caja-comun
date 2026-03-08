@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 2.3.3
+ * Version: 2.3.4
  * Author: Loki
  */
 
@@ -28,39 +28,105 @@ final class EconomiaPro {
         add_shortcode('economia_dashboard', [$this,'dashboard']);
     }
 
-    public function install(): void { $this->create_tables(); $this->seed_default_categories(); }
-    public function maybe_install(): void { $this->create_tables(); $this->seed_default_categories(); }
+    public function install(): void { $this->create_or_update_tables(); $this->seed_default_categories(); }
+    public function maybe_install(): void { $this->create_or_update_tables(); $this->seed_default_categories(); }
 
-    private function create_tables(): void {
+    private function table_exists(string $table): bool {
+        global $wpdb;
+        return $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table)) === $table;
+    }
+
+    private function column_exists(string $table, string $column): bool {
+        global $wpdb;
+        return (bool) $wpdb->get_row($wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", $column));
+    }
+
+    private function create_or_update_tables(): void {
         global $wpdb;
         $charset = $wpdb->get_charset_collate();
-        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-        dbDelta("CREATE TABLE {$this->table_categories} (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            name VARCHAR(120) NOT NULL,
-            type VARCHAR(20) NOT NULL DEFAULT 'expense',
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id), KEY type (type)
-        ) {$charset};");
-        dbDelta("CREATE TABLE {$this->table_transactions} (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            type VARCHAR(20) NOT NULL,
-            category_id BIGINT UNSIGNED NULL,
-            amount DECIMAL(10,2) NOT NULL,
-            description VARCHAR(255) NOT NULL DEFAULT '',
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id), KEY type (type), KEY category_id (category_id), KEY created_at (created_at)
-        ) {$charset};");
+
+        if (!$this->table_exists($this->table_categories)) {
+            $wpdb->query("CREATE TABLE {$this->table_categories} (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                name VARCHAR(120) NOT NULL,
+                slug VARCHAR(191) NULL,
+                type VARCHAR(20) NOT NULL DEFAULT 'expense',
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY eco_slug (slug),
+                KEY eco_type (type)
+            ) {$charset}");
+        } else {
+            if (!$this->column_exists($this->table_categories, 'slug')) {
+                $wpdb->query("ALTER TABLE {$this->table_categories} ADD COLUMN slug VARCHAR(191) NULL AFTER name");
+            }
+            if (!$this->column_exists($this->table_categories, 'type')) {
+                $wpdb->query("ALTER TABLE {$this->table_categories} ADD COLUMN type VARCHAR(20) NOT NULL DEFAULT 'expense' AFTER slug");
+            }
+            if (!$this->column_exists($this->table_categories, 'created_at')) {
+                $wpdb->query("ALTER TABLE {$this->table_categories} ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER type");
+            }
+        }
+
+        if (!$this->table_exists($this->table_transactions)) {
+            $wpdb->query("CREATE TABLE {$this->table_transactions} (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                type VARCHAR(20) NOT NULL,
+                category_id BIGINT UNSIGNED NULL,
+                amount DECIMAL(10,2) NOT NULL,
+                description VARCHAR(255) NOT NULL DEFAULT '',
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY eco_type (type),
+                KEY eco_category_id (category_id),
+                KEY eco_created_at (created_at)
+            ) {$charset}");
+        } else {
+            if (!$this->column_exists($this->table_transactions, 'category_id')) {
+                $wpdb->query("ALTER TABLE {$this->table_transactions} ADD COLUMN category_id BIGINT UNSIGNED NULL AFTER type");
+            }
+            if (!$this->column_exists($this->table_transactions, 'description')) {
+                $wpdb->query("ALTER TABLE {$this->table_transactions} ADD COLUMN description VARCHAR(255) NOT NULL DEFAULT '' AFTER amount");
+            }
+            if (!$this->column_exists($this->table_transactions, 'created_at')) {
+                $wpdb->query("ALTER TABLE {$this->table_transactions} ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER description");
+            }
+        }
+    }
+
+    private function unique_slug(string $name, int $exclude_id = 0): string {
+        global $wpdb;
+        $base = sanitize_title($name);
+        if ($base === '') $base = 'categoria';
+        $slug = $base;
+        $i = 2;
+        while ((int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$this->table_categories} WHERE slug = %s AND id != %d", $slug, $exclude_id)) > 0) {
+            $slug = $base . '-' . $i;
+            $i++;
+        }
+        return $slug;
+    }
+
+    private function backfill_missing_slugs(): void {
+        global $wpdb;
+        if (!$this->column_exists($this->table_categories, 'slug')) return;
+        $rows = $wpdb->get_results("SELECT id, name, slug FROM {$this->table_categories} ORDER BY id ASC");
+        if (!$rows) return;
+        foreach ($rows as $row) {
+            if (!empty($row->slug)) continue;
+            $slug = $this->unique_slug((string)$row->name, (int)$row->id);
+            $wpdb->update($this->table_categories, ['slug' => $slug], ['id' => (int)$row->id], ['%s'], ['%d']);
+        }
     }
 
     private function seed_default_categories(): void {
         global $wpdb;
-        $exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $this->table_categories));
-        if ($exists !== $this->table_categories) return;
-        $count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$this->table_categories}");
+        if (!$this->table_exists($this->table_categories)) return;
+        $this->backfill_missing_slugs();
+        $count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$this->table_categories}");
         if ($count > 0) return;
         foreach ([['Salario','income'],['Extra','income'],['Comida','expense'],['Transporte','expense'],['Hogar','expense']] as $cat) {
-            $wpdb->insert($this->table_categories, ['name'=>$cat[0],'type'=>$cat[1]], ['%s','%s']);
+            $wpdb->insert($this->table_categories, ['name'=>$cat[0],'slug'=>$this->unique_slug($cat[0]),'type'=>$cat[1]], ['%s','%s','%s']);
         }
     }
 
@@ -164,8 +230,9 @@ final class EconomiaPro {
         $type = isset($_POST['type']) ? sanitize_text_field(wp_unslash($_POST['type'])) : 'expense';
         $name = isset($_POST['name']) ? sanitize_text_field(wp_unslash($_POST['name'])) : '';
         if (!in_array($type,['income','expense'],true) || $name==='') $this->safe_back_redirect('invalid');
-        $this->create_tables();
-        $result = $wpdb->insert($this->table_categories, ['name'=>$name,'type'=>$type], ['%s','%s']);
+        $this->create_or_update_tables();
+        $this->backfill_missing_slugs();
+        $result = $wpdb->insert($this->table_categories, ['name'=>$name,'slug'=>$this->unique_slug($name),'type'=>$type], ['%s','%s','%s']);
         if ($result === false) { error_log('economia-pro add_category DB error: '.$wpdb->last_error); $this->safe_back_redirect('db_error'); }
         $this->safe_back_redirect('category_added');
     }
@@ -179,7 +246,7 @@ final class EconomiaPro {
         $amount = isset($_POST['amount']) ? (float)$_POST['amount'] : 0;
         $description = isset($_POST['description']) ? sanitize_text_field(wp_unslash($_POST['description'])) : '';
         if (!in_array($type,['income','expense'],true) || $amount<=0 || $description==='' || $category_id<=0) $this->safe_back_redirect('invalid');
-        $this->create_tables();
+        $this->create_or_update_tables();
         $cat_type = $wpdb->get_var($wpdb->prepare("SELECT type FROM {$this->table_categories} WHERE id = %d", $category_id));
         if ($cat_type !== $type) $this->safe_back_redirect('type_mismatch');
         $result = $wpdb->insert($this->table_transactions, ['type'=>$type,'category_id'=>$category_id,'amount'=>$amount,'description'=>$description], ['%s','%d','%f','%s']);
@@ -210,23 +277,7 @@ final class EconomiaPro {
     }
 
     private function front_css(): string {
-        return '<style>
-        .ecopro-wrap{max-width:900px;margin:24px auto;padding:24px;background:#fff;border:1px solid #dcdcde;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);color:#1d2327;box-sizing:border-box;width:calc(100% - 24px);}
-        .ecopro-title{margin:0 0 18px 0;color:#1d2327;font-size:36px;line-height:1.1;word-break:break-word;}
-        .ecopro-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px;}
-        .ecopro-grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px;}
-        .ecopro-card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:18px;box-sizing:border-box;min-width:0;}
-        .ecopro-form{display:flex;gap:10px;flex-wrap:wrap;}
-        .ecopro-input,.ecopro-select{width:100%;padding:12px 14px;border:1px solid #c3c4c7;border-radius:10px;background:#fff;color:#1d2327;font-size:16px;box-sizing:border-box;min-width:0;}
-        .ecopro-btn{display:inline-block;padding:12px 18px;border:0;border-radius:10px;background:#2271b1;color:#fff;font-weight:600;cursor:pointer;}
-        .ecopro-table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;}
-        .ecopro-table{width:100%;border-collapse:collapse;}
-        .ecopro-table th,.ecopro-table td{text-align:left;padding:10px;border-bottom:1px solid #eee;vertical-align:top;}
-        .ecopro-table th{border-bottom-color:#ddd;}
-        .ecopro-muted{margin:0;color:#50575e;}
-        @media (max-width:900px){.ecopro-grid-3,.ecopro-grid-2{grid-template-columns:1fr;}}
-        @media (max-width:640px){.ecopro-wrap{padding:16px;width:calc(100% - 16px);margin:16px auto;}.ecopro-title{font-size:28px;}.ecopro-card{padding:14px;}.ecopro-form{display:grid;grid-template-columns:1fr;gap:10px;}.ecopro-btn{width:100%;}}
-        </style>';
+        return '<style>.ecopro-wrap{max-width:900px;margin:24px auto;padding:24px;background:#fff;border:1px solid #dcdcde;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);color:#1d2327;box-sizing:border-box;width:calc(100% - 24px);}.ecopro-title{margin:0 0 18px 0;color:#1d2327;font-size:36px;line-height:1.1;word-break:break-word;}.ecopro-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px;}.ecopro-grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px;}.ecopro-card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:18px;box-sizing:border-box;min-width:0;}.ecopro-form{display:flex;gap:10px;flex-wrap:wrap;}.ecopro-input,.ecopro-select{width:100%;padding:12px 14px;border:1px solid #c3c4c7;border-radius:10px;background:#fff;color:#1d2327;font-size:16px;box-sizing:border-box;min-width:0;}.ecopro-btn{display:inline-block;padding:12px 18px;border:0;border-radius:10px;background:#2271b1;color:#fff;font-weight:600;cursor:pointer;}.ecopro-table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;}.ecopro-table{width:100%;border-collapse:collapse;}.ecopro-table th,.ecopro-table td{text-align:left;padding:10px;border-bottom:1px solid #eee;vertical-align:top;}.ecopro-table th{border-bottom-color:#ddd;}.ecopro-muted{margin:0;color:#50575e;}@media (max-width:900px){.ecopro-grid-3,.ecopro-grid-2{grid-template-columns:1fr;}}@media (max-width:640px){.ecopro-wrap{padding:16px;width:calc(100% - 16px);margin:16px auto;}.ecopro-title{font-size:28px;}.ecopro-card{padding:14px;}.ecopro-form{display:grid;grid-template-columns:1fr;gap:10px;}.ecopro-btn{width:100%;}}</style>';
     }
 
     private function render_front_stats(array $totals): string {
