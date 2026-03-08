@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 2.6
+ * Version: 2.6.1
  * Author: Loki
  */
 
@@ -37,6 +37,10 @@ final class EconomiaPro {
         add_action('admin_post_ecopro_save_budget', [$this,'save_budget']);
         add_action(self::CRON_HOOK, [$this,'run_daily_checks']);
         add_shortcode('economia_dashboard', [$this,'dashboard']);
+    }
+
+    public function menu(): void {
+        add_menu_page('Economía Pro', 'Economía', 'manage_options', 'eco-pro', [$this, 'admin_page'], 'dashicons-chart-line', 26);
     }
 
     public function install(): void {
@@ -126,6 +130,22 @@ final class EconomiaPro {
                 UNIQUE KEY eco_budget_month_category (category_id, period_month),
                 KEY eco_budget_period (period_month)
             ) {$charset}");
+        } else {
+            if (!$this->column_exists($this->table_budgets, 'category_id')) {
+                $wpdb->query("ALTER TABLE {$this->table_budgets} ADD COLUMN category_id BIGINT UNSIGNED NOT NULL AFTER id");
+            }
+            if (!$this->column_exists($this->table_budgets, 'period_month')) {
+                $wpdb->query("ALTER TABLE {$this->table_budgets} ADD COLUMN period_month CHAR(7) NOT NULL AFTER category_id");
+            }
+            if (!$this->column_exists($this->table_budgets, 'amount')) {
+                $wpdb->query("ALTER TABLE {$this->table_budgets} ADD COLUMN amount DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER period_month");
+            }
+            if (!$this->column_exists($this->table_budgets, 'created_at')) {
+                $wpdb->query("ALTER TABLE {$this->table_budgets} ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER amount");
+            }
+            if (!$this->column_exists($this->table_budgets, 'updated_at')) {
+                $wpdb->query("ALTER TABLE {$this->table_budgets} ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER created_at");
+            }
         }
 
         if (!$this->table_exists($this->table_notifications)) {
@@ -205,9 +225,7 @@ final class EconomiaPro {
         return $wpdb->get_results("SELECT n.*, c.name AS category_name FROM {$this->table_notifications} n LEFT JOIN {$this->table_categories} c ON c.id = n.category_id ORDER BY n.created_at DESC LIMIT 20");
     }
 
-    private function get_current_period(): string {
-        return current_time('Y-m');
-    }
+    private function get_current_period(): string { return current_time('Y-m'); }
 
     private function get_totals(): array {
         global $wpdb;
@@ -238,6 +256,7 @@ final class EconomiaPro {
 
     private function get_budget_rows(string $period): array {
         global $wpdb;
+        if (!$this->column_exists($this->table_budgets, 'amount')) return [];
         $start = $period . '-01 00:00:00';
         $end = date('Y-m-d H:i:s', strtotime($start . ' +1 month'));
         return $wpdb->get_results($wpdb->prepare("
@@ -258,25 +277,16 @@ final class EconomiaPro {
 
     private function get_budget_overview_cards(string $period): array {
         $rows = $this->get_budget_rows($period);
-        $budget_total = 0.0;
-        $spent_total = 0.0;
-        $over_count = 0;
+        $budget_total = 0.0; $spent_total = 0.0; $over_count = 0;
         foreach ($rows as $row) {
             $budget_total += (float)$row->budget_amount;
             $spent_total += (float)$row->spent_amount;
             if ((float)$row->spent_amount > (float)$row->budget_amount) $over_count++;
         }
-        return [
-            'budget_total' => $budget_total,
-            'spent_total' => $spent_total,
-            'remaining' => $budget_total - $spent_total,
-            'over_count' => $over_count,
-        ];
+        return ['budget_total'=>$budget_total,'spent_total'=>$spent_total,'remaining'=>$budget_total-$spent_total,'over_count'=>$over_count];
     }
 
-    private function get_edit_transaction_id(): int {
-        return isset($_GET['edit_tx']) ? absint($_GET['edit_tx']) : 0;
-    }
+    private function get_edit_transaction_id(): int { return isset($_GET['edit_tx']) ? absint($_GET['edit_tx']) : 0; }
 
     private function current_url_with(array $args = []): string {
         $scheme = is_ssl() ? 'https' : 'http';
@@ -284,8 +294,7 @@ final class EconomiaPro {
         $uri = $_SERVER['REQUEST_URI'] ?? '';
         $url = $scheme . '://' . $host . $uri;
         foreach ($args as $k => $v) {
-            if ($v === null) $url = remove_query_arg($k, $url);
-            else $url = add_query_arg($k, $v, $url);
+            if ($v === null) $url = remove_query_arg($k, $url); else $url = add_query_arg($k, $v, $url);
         }
         return esc_url($url);
     }
@@ -328,11 +337,7 @@ final class EconomiaPro {
                 <thead><tr><th>Tipo</th><th>Mensaje</th><th>Fecha</th></tr></thead>
                 <tbody>
                 <?php if (!empty($notifications)): foreach ($notifications as $notice): ?>
-                    <tr>
-                        <td><?php echo esc_html($notice->type); ?></td>
-                        <td><?php echo esc_html($notice->message); ?></td>
-                        <td><?php echo esc_html($notice->created_at); ?></td>
-                    </tr>
+                    <tr><td><?php echo esc_html($notice->type); ?></td><td><?php echo esc_html($notice->message); ?></td><td><?php echo esc_html($notice->created_at); ?></td></tr>
                 <?php endforeach; else: ?>
                     <tr><td colspan="3">No hay alertas todavía.</td></tr>
                 <?php endif; ?>
@@ -359,26 +364,21 @@ final class EconomiaPro {
                 <input type="number" step="0.01" min="0" name="amount" placeholder="Presupuesto" required>
                 <button class="button">Guardar presupuesto</button>
             </form>
-
             <div style="display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:12px;margin:16px 0;">
                 <div style="border:1px solid #ddd;border-radius:8px;padding:12px;"><strong>Presupuesto</strong><div><?php echo esc_html(number_format($overview['budget_total'],2,',','.')); ?> €</div></div>
                 <div style="border:1px solid #ddd;border-radius:8px;padding:12px;"><strong>Gastado</strong><div><?php echo esc_html(number_format($overview['spent_total'],2,',','.')); ?> €</div></div>
                 <div style="border:1px solid #ddd;border-radius:8px;padding:12px;"><strong>Restante</strong><div><?php echo esc_html(number_format($overview['remaining'],2,',','.')); ?> €</div></div>
                 <div style="border:1px solid #ddd;border-radius:8px;padding:12px;"><strong>Alertas</strong><div><?php echo (int)$overview['over_count']; ?></div></div>
             </div>
-
             <table class="widefat striped">
                 <thead><tr><th>Categoría</th><th>Presupuesto</th><th>Gastado</th><th>Estado</th></tr></thead>
                 <tbody>
-                <?php if (!empty($rows)): foreach ($rows as $row):
-                    $over = (float)$row->spent_amount > (float)$row->budget_amount;
-                    $style = $over ? 'color:#b32d2e;font-weight:700;' : 'color:#1e4620;font-weight:700;';
-                    ?>
+                <?php if (!empty($rows)): foreach ($rows as $row): $over = (float)$row->spent_amount > (float)$row->budget_amount; ?>
                     <tr>
                         <td><?php echo esc_html($row->name); ?></td>
                         <td><?php echo esc_html(number_format((float)$row->budget_amount,2,',','.')); ?> €</td>
                         <td><?php echo esc_html(number_format((float)$row->spent_amount,2,',','.')); ?> €</td>
-                        <td style="<?php echo esc_attr($style); ?>"><?php echo $over ? 'Superado' : 'OK'; ?></td>
+                        <td style="<?php echo esc_attr($over ? 'color:#b32d2e;font-weight:700;' : 'color:#1e4620;font-weight:700;'); ?>"><?php echo $over ? 'Superado' : 'OK'; ?></td>
                     </tr>
                 <?php endforeach; else: ?>
                     <tr><td colspan="4">No hay presupuestos este mes.</td></tr>
@@ -406,49 +406,51 @@ final class EconomiaPro {
         $budget_overview = $this->get_budget_overview_cards($period);
         ?>
         <div class="wrap"><h1>Economía Pro</h1><?php echo $this->get_notice_html(); ?>
-        <div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:16px;max-width:960px;margin:18px 0 24px 0;">
-            <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;"><strong>Ingresos</strong><div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($totals['income'],2,',','.')); ?> €</div></div>
-            <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;"><strong>Gastos</strong><div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($totals['expense'],2,',','.')); ?> €</div></div>
-            <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;"><strong>Balance</strong><div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($totals['balance'],2,',','.')); ?> €</div></div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:16px;max-width:960px;margin:18px 0 24px 0;">
+                <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;"><strong>Ingresos</strong><div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($totals['income'],2,',','.')); ?> €</div></div>
+                <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;"><strong>Gastos</strong><div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($totals['expense'],2,',','.')); ?> €</div></div>
+                <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;"><strong>Balance</strong><div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($totals['balance'],2,',','.')); ?> €</div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:24px;align-items:start;max-width:1280px;">
+                <div style="display:grid;gap:24px;">
+                    <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
+                        <h2 style="margin-top:0;">Ajustes</h2><p><code>[economia_dashboard]</code></p>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>"><?php wp_nonce_field('ecopro_save_settings'); ?><input type="hidden" name="action" value="ecopro_save_settings">
+                            <p><label><strong>Página frontend</strong></label><br><select name="ecopro_front_page" style="width:100%;max-width:360px;"><option value="0">— Sin sincronizar página —</option><?php foreach ($pages as $page): ?><option value="<?php echo esc_attr((string)$page->ID); ?>" <?php selected($page_id,(int)$page->ID); ?>><?php echo esc_html($page->post_title.' (#'.$page->ID.')'); ?></option><?php endforeach; ?></select></p>
+                            <p><label><strong>Contraseña del frontend</strong></label><br><input type="password" name="eco_pass" placeholder="Escribe una nueva contraseña" style="width:100%;max-width:360px;"></p>
+                            <p><button type="submit" class="button button-primary">Guardar ajustes</button></p>
+                        </form>
+                    </div>
+                    <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
+                        <h2 style="margin-top:0;">Categorías</h2>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;gap:10px;flex-wrap:wrap;"><?php wp_nonce_field('ecopro_add_category'); ?><input type="hidden" name="action" value="ecopro_add_category"><select name="type"><option value="income">Ingreso</option><option value="expense">Gasto</option></select><input type="text" name="name" placeholder="Nueva categoría" required><button class="button">Añadir</button></form>
+                        <table class="widefat striped" style="margin-top:16px;"><thead><tr><th>ID</th><th>Nombre</th><th>Tipo</th></tr></thead><tbody><?php foreach($categories as $cat): ?><tr><td><?php echo (int)$cat->id; ?></td><td><?php echo esc_html($cat->name); ?></td><td><?php echo $cat->type==='income'?'Ingreso':'Gasto'; ?></td></tr><?php endforeach; ?></tbody></table>
+                    </div>
+                </div>
+                <div style="display:grid;gap:24px;">
+                    <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
+                        <h2 style="margin-top:0;"><?php echo $edit_tx ? 'Editar movimiento' : 'Añadir movimiento'; ?></h2>
+                        <?php if ($edit_tx): ?><p><a href="<?php echo esc_url(admin_url('admin.php?page=eco-pro')); ?>">Cancelar edición</a></p><?php endif; ?>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;gap:10px;flex-wrap:wrap;">
+                            <?php if ($edit_tx): wp_nonce_field('ecopro_update_tx'); ?><input type="hidden" name="action" value="ecopro_update_tx"><input type="hidden" name="tx_id" value="<?php echo (int)$edit_tx->id; ?>">
+                            <?php else: wp_nonce_field('ecopro_add_tx'); ?><input type="hidden" name="action" value="ecopro_add_tx"><?php endif; ?>
+                            <select name="type" id="ecopro-admin-type">
+                                <option value="income" <?php selected($admin_selected_type === 'income'); ?>>Ingreso</option>
+                                <option value="expense" <?php selected($admin_selected_type === 'expense'); ?>>Gasto</option>
+                            </select>
+                            <select name="category_id" id="ecopro-admin-category" required><?php echo $this->render_category_options($categories, $admin_selected_type, $admin_selected_cat); ?></select>
+                            <input type="number" step="0.01" min="0" name="amount" placeholder="Cantidad" value="<?php echo $edit_tx ? esc_attr((string)$edit_tx->amount) : ''; ?>" required>
+                            <input type="text" name="description" placeholder="Descripción" value="<?php echo $edit_tx ? esc_attr($edit_tx->description) : ''; ?>" style="min-width:220px;" required>
+                            <button class="button button-primary"><?php echo $edit_tx ? 'Actualizar' : 'Guardar'; ?></button>
+                        </form>
+                        <h2 style="margin:24px 0 12px;">Movimientos</h2>
+                        <table class="widefat striped"><thead><tr><th>ID</th><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Descripción</th><th>Fecha</th><th>Acción</th></tr></thead><tbody><?php if(!empty($rows)): foreach($rows as $r): ?><tr><td><?php echo (int)$r->id; ?></td><td><?php echo $r->type==='income'?'Ingreso':'Gasto'; ?></td><td><?php echo esc_html($r->category_name ?: '—'); ?></td><td><?php echo esc_html(number_format((float)$r->amount,2,',','.')); ?> €</td><td><?php echo esc_html($r->description); ?></td><td><?php echo esc_html($r->created_at); ?></td><td><a href="<?php echo esc_url(admin_url('admin.php?page=eco-pro&edit_tx='.(int)$r->id)); ?>">Editar</a></td></tr><?php endforeach; else: ?><tr><td colspan="7">No hay movimientos todavía.</td></tr><?php endif; ?></tbody></table>
+                    </div>
+                    <?php echo $this->render_budget_box_admin($categories, $period, $budget_overview, $budget_rows); ?>
+                    <?php echo $this->render_notifications_box($notifications); ?>
+                </div>
+            </div>
         </div>
-        <div style="display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:24px;align-items:start;max-width:1280px;">
-            <div style="display:grid;gap:24px;">
-                <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
-                    <h2 style="margin-top:0;">Ajustes</h2><p><code>[economia_dashboard]</code></p>
-                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>"><?php wp_nonce_field('ecopro_save_settings'); ?><input type="hidden" name="action" value="ecopro_save_settings">
-                    <p><label><strong>Página frontend</strong></label><br><select name="ecopro_front_page" style="width:100%;max-width:360px;"><option value="0">— Sin sincronizar página —</option><?php foreach ($pages as $page): ?><option value="<?php echo esc_attr((string)$page->ID); ?>" <?php selected($page_id,(int)$page->ID); ?>><?php echo esc_html($page->post_title.' (#'.$page->ID.')'); ?></option><?php endforeach; ?></select></p>
-                    <p><label><strong>Contraseña del frontend</strong></label><br><input type="password" name="eco_pass" placeholder="Escribe una nueva contraseña" style="width:100%;max-width:360px;"></p>
-                    <p><button type="submit" class="button button-primary">Guardar ajustes</button></p></form>
-                </div>
-                <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
-                    <h2 style="margin-top:0;">Categorías</h2>
-                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;gap:10px;flex-wrap:wrap;"><?php wp_nonce_field('ecopro_add_category'); ?><input type="hidden" name="action" value="ecopro_add_category"><select name="type"><option value="income">Ingreso</option><option value="expense">Gasto</option></select><input type="text" name="name" placeholder="Nueva categoría" required><button class="button">Añadir</button></form>
-                    <table class="widefat striped" style="margin-top:16px;"><thead><tr><th>ID</th><th>Nombre</th><th>Tipo</th></tr></thead><tbody><?php foreach($categories as $cat): ?><tr><td><?php echo (int)$cat->id; ?></td><td><?php echo esc_html($cat->name); ?></td><td><?php echo $cat->type==='income'?'Ingreso':'Gasto'; ?></td></tr><?php endforeach; ?></tbody></table>
-                </div>
-            </div>
-            <div style="display:grid;gap:24px;">
-                <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
-                    <h2 style="margin-top:0;"><?php echo $edit_tx ? 'Editar movimiento' : 'Añadir movimiento'; ?></h2>
-                    <?php if ($edit_tx): ?><p><a href="<?php echo esc_url(admin_url('admin.php?page=eco-pro')); ?>">Cancelar edición</a></p><?php endif; ?>
-                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;gap:10px;flex-wrap:wrap;">
-                        <?php if ($edit_tx): wp_nonce_field('ecopro_update_tx'); ?><input type="hidden" name="action" value="ecopro_update_tx"><input type="hidden" name="tx_id" value="<?php echo (int)$edit_tx->id; ?>">
-                        <?php else: wp_nonce_field('ecopro_add_tx'); ?><input type="hidden" name="action" value="ecopro_add_tx"><?php endif; ?>
-                        <select name="type" id="ecopro-admin-type">
-                            <option value="income" <?php selected($admin_selected_type === 'income'); ?>>Ingreso</option>
-                            <option value="expense" <?php selected($admin_selected_type === 'expense'); ?>>Gasto</option>
-                        </select>
-                        <select name="category_id" id="ecopro-admin-category" required><?php echo $this->render_category_options($categories, $admin_selected_type, $admin_selected_cat); ?></select>
-                        <input type="number" step="0.01" min="0" name="amount" placeholder="Cantidad" value="<?php echo $edit_tx ? esc_attr((string)$edit_tx->amount) : ''; ?>" required>
-                        <input type="text" name="description" placeholder="Descripción" value="<?php echo $edit_tx ? esc_attr($edit_tx->description) : ''; ?>" style="min-width:220px;" required>
-                        <button class="button button-primary"><?php echo $edit_tx ? 'Actualizar' : 'Guardar'; ?></button>
-                    </form>
-                    <h2 style="margin:24px 0 12px;">Movimientos</h2>
-                    <table class="widefat striped"><thead><tr><th>ID</th><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Descripción</th><th>Fecha</th><th>Acción</th></tr></thead><tbody><?php if(!empty($rows)): foreach($rows as $r): ?><tr><td><?php echo (int)$r->id; ?></td><td><?php echo $r->type==='income'?'Ingreso':'Gasto'; ?></td><td><?php echo esc_html($r->category_name ?: '—'); ?></td><td><?php echo esc_html(number_format((float)$r->amount,2,',','.')); ?> €</td><td><?php echo esc_html($r->description); ?></td><td><?php echo esc_html($r->created_at); ?></td><td><a href="<?php echo esc_url(admin_url('admin.php?page=eco-pro&edit_tx='.(int)$r->id)); ?>">Editar</a></td></tr><?php endforeach; else: ?><tr><td colspan="7">No hay movimientos todavía.</td></tr><?php endif; ?></tbody></table>
-                </div>
-                <?php echo $this->render_budget_box_admin($categories, $period, $budget_overview, $budget_rows); ?>
-                <?php echo $this->render_notifications_box($notifications); ?>
-            </div>
-        </div></div>
         <script>
         (function(){
             const categories = <?php echo wp_json_encode(array_map(function($cat){ return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type]; }, $categories)); ?>;
@@ -630,35 +632,20 @@ final class EconomiaPro {
 
     private function render_front_budget_box(array $categories, string $period, array $overview, array $rows): string {
         $options = '';
-        foreach ($categories as $cat) {
-            if ($cat->type !== 'expense') continue;
-            $options .= '<option value="'.(int)$cat->id.'">'.esc_html($cat->name).'</option>';
-        }
+        foreach ($categories as $cat) { if ($cat->type !== 'expense') continue; $options .= '<option value="'.(int)$cat->id.'">'.esc_html($cat->name).'</option>'; }
         $html = '<div class="ecopro-card"><h3 style="margin:0 0 14px 0;color:#1d2327;">Presupuestos</h3>';
         $html .= '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" class="ecopro-form">'.wp_nonce_field('ecopro_save_budget','_wpnonce',true,false).'<input type="hidden" name="action" value="ecopro_save_budget"><input type="month" name="period_month" value="'.esc_attr($period).'" class="ecopro-input" required><select name="category_id" class="ecopro-select" required><option value="">Categoría gasto</option>'.$options.'</select><input type="number" step="0.01" min="0" name="amount" placeholder="Presupuesto" class="ecopro-input" required><button type="submit" class="ecopro-btn">Guardar presupuesto</button></form>';
         $html .= '<div class="ecopro-grid-4"><div class="ecopro-card"><strong>Presupuesto</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format($overview['budget_total'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Gastado</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format($overview['spent_total'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Restante</strong><div style="font-size:22px;margin-top:6px;">'.esc_html(number_format($overview['remaining'],2,',','.')).' €</div></div><div class="ecopro-card"><strong>Alertas</strong><div style="font-size:22px;margin-top:6px;">'.(int)$overview['over_count'].'</div></div></div>';
         $html .= '<div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Categoría</th><th>Presupuesto</th><th>Gastado</th><th>Estado</th></tr></thead><tbody>';
-        if (!empty($rows)) {
-            foreach ($rows as $row) {
-                $over = (float)$row->spent_amount > (float)$row->budget_amount;
-                $state = $over ? '<span class="ecopro-danger">Superado</span>' : '<span class="ecopro-ok">OK</span>';
-                $html .= '<tr><td>'.esc_html($row->name).'</td><td>'.esc_html(number_format((float)$row->budget_amount,2,',','.')).' €</td><td>'.esc_html(number_format((float)$row->spent_amount,2,',','.')).' €</td><td>'.$state.'</td></tr>';
-            }
-        } else {
-            $html .= '<tr><td colspan="4">No hay presupuestos este mes.</td></tr>';
-        }
+        if (!empty($rows)) foreach ($rows as $row) { $over = (float)$row->spent_amount > (float)$row->budget_amount; $html .= '<tr><td>'.esc_html($row->name).'</td><td>'.esc_html(number_format((float)$row->budget_amount,2,',','.')).' €</td><td>'.esc_html(number_format((float)$row->spent_amount,2,',','.')).' €</td><td>'.($over ? '<span class="ecopro-danger">Superado</span>' : '<span class="ecopro-ok">OK</span>').'</td></tr>'; }
+        else $html .= '<tr><td colspan="4">No hay presupuestos este mes.</td></tr>';
         return $html.'</tbody></table></div></div>';
     }
 
     private function render_front_notifications_box(array $notifications): string {
         $html = '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Alertas</h3><div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Tipo</th><th>Mensaje</th><th>Fecha</th></tr></thead><tbody>';
-        if (!empty($notifications)) {
-            foreach ($notifications as $notice) {
-                $html .= '<tr><td>'.esc_html($notice->type).'</td><td>'.esc_html($notice->message).'</td><td>'.esc_html($notice->created_at).'</td></tr>';
-            }
-        } else {
-            $html .= '<tr><td colspan="3">No hay alertas todavía.</td></tr>';
-        }
+        if (!empty($notifications)) foreach ($notifications as $notice) $html .= '<tr><td>'.esc_html($notice->type).'</td><td>'.esc_html($notice->message).'</td><td>'.esc_html($notice->created_at).'</td></tr>';
+        else $html .= '<tr><td colspan="3">No hay alertas todavía.</td></tr>';
         return $html.'</tbody></table></div></div>';
     }
 
@@ -673,10 +660,7 @@ final class EconomiaPro {
         $html = '<div class="ecopro-card"><h3 style="margin:0 0 12px 0;color:#1d2327;">Últimos movimientos</h3>';
         if (empty($rows)) return $html.'<p class="ecopro-muted">No hay movimientos todavía.</p></div>';
         $html .= '<div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Descripción</th><th>Acción</th></tr></thead><tbody>';
-        foreach ($rows as $r) {
-            $edit_url = $this->current_url_with(['edit_tx' => (int)$r->id]);
-            $html .= '<tr><td>'.($r->type==='income'?'Ingreso':'Gasto').'</td><td>'.esc_html($r->category_name ?: '—').'</td><td>'.esc_html(number_format((float)$r->amount,2,',','.')).' €</td><td>'.esc_html($r->description).'</td><td><a class="ecopro-link" href="'.$edit_url.'">Editar</a></td></tr>';
-        }
+        foreach ($rows as $r) { $edit_url = $this->current_url_with(['edit_tx' => (int)$r->id]); $html .= '<tr><td>'.($r->type==='income'?'Ingreso':'Gasto').'</td><td>'.esc_html($r->category_name ?: '—').'</td><td>'.esc_html(number_format((float)$r->amount,2,',','.')).' €</td><td>'.esc_html($r->description).'</td><td><a class="ecopro-link" href="'.$edit_url.'">Editar</a></td></tr>'; }
         return $html.'</tbody></table></div></div>';
     }
 
@@ -689,7 +673,6 @@ final class EconomiaPro {
             else return $this->front_css().'<div class="ecopro-wrap"><p style="margin:0 0 12px 0;color:#b32d2e;font-weight:600;">Contraseña incorrecta.</p><form method="post"><p style="margin:0 0 16px 0;"><input type="password" name="eco_pass" placeholder="Contraseña" class="ecopro-input" required></p><p style="margin:0;"><button type="submit" class="ecopro-btn">Reintentar</button></p><input type="hidden" name="eco_login" value="1"></form></div>';
         }
         if (!$this->frontend_access_granted()) return $this->front_css().'<form method="post" class="ecopro-wrap"><h2 class="ecopro-title">Acceso Economía</h2><p style="margin:0 0 18px 0;color:#50575e;">Introduce tu contraseña para acceder al panel financiero.</p><p style="margin:0 0 16px 0;"><input type="password" name="eco_pass" placeholder="Contraseña" class="ecopro-input" required></p><p style="margin:0;"><button type="submit" class="ecopro-btn">Entrar</button></p><input type="hidden" name="eco_login" value="1"></form>';
-
         $totals = $this->get_totals();
         $categories = $this->get_categories();
         $rows = $this->get_transactions();
