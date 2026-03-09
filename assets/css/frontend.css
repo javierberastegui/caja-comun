@@ -387,3 +387,76 @@ canvas.ecopro-chart{
         height:auto !important;
     }
 }
+
+
+/* v4.8 category spending bars */
+.ecopro-category-bars{
+display:flex;
+flex-direction:column;
+gap:10px;
+margin-top:10px;
+}
+.ecopro-category-bar{
+display:flex;
+align-items:center;
+gap:10px;
+}
+.ecopro-category-label{
+min-width:110px;
+font-size:13px;
+color:#cfd8ff;
+}
+.ecopro-category-track{
+flex:1;
+background:#1a2445;
+border-radius:20px;
+height:10px;
+overflow:hidden;
+}
+.ecopro-category-fill{
+height:100%;
+background:linear-gradient(90deg,#5a8cff,#8fb0ff);
+}
+.ecopro-category-value{
+font-size:13px;
+color:#ffffff;
+min-width:70px;
+text-align:right;
+}
+
+
+/* v4.9 daily spend analytics */
+.ecopro-daily-chart{
+    display:flex;
+    align-items:flex-end;
+    gap:6px;
+    min-height:150px;
+    padding:12px 0 4px;
+    overflow-x:auto;
+}
+.ecopro-daily-item{
+    min-width:22px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:6px;
+}
+.ecopro-daily-bar-wrap{
+    height:124px;
+    display:flex;
+    align-items:flex-end;
+}
+.ecopro-daily-bar{
+    width:16px;
+    border-radius:10px 10px 4px 4px;
+    background:linear-gradient(180deg,#6ea8ff 0%, #3b82f6 100%);
+    box-shadow:0 6px 18px rgba(59,130,246,.25);
+}
+.ecopro-daily-bar-spike{
+    background:linear-gradient(180deg,#ffb36b 0%, #ff7a18 100%);
+    box-shadow:0 6px 18px rgba(255,122,24,.28);
+}
+.ecopro-daily-label{
+    font-size:11px;
+    color:#cfd8ff;
+}

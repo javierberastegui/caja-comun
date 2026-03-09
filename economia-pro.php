@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 4.7.3
+ * Version: 4.9
  * Author: Loki
  */
 
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '4.7.3';
+    private const VERSION = '4.9';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
     private const COOKIE_FRONT_OK = 'ecopro_front_ok';
@@ -1750,7 +1750,128 @@ final class EconomiaPro {
         return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Ingresos vs Gastos</h2><div class="ecopro-chart-wrap"><canvas class="ecopro-chart-donut-income-expense" height="180" data-income="' . esc_attr((string)$income) . '" data-expense="' . esc_attr((string)$expense) . '"></canvas></div></div>';
     }
 
-    public function dashboard(): string {
+    
+
+    private function get_daily_spend_analytics(string $period = ''): array {
+        $series = $this->get_daily_expense_series($period);
+        $max_amount = 0.0;
+        $max_day = 0;
+        $sum = 0.0;
+        $count = 0;
+
+        foreach ($series as $item) {
+            $amount = (float) ($item['amount'] ?? 0);
+            $day = (int) ($item['day'] ?? 0);
+            $sum += $amount;
+            $count++;
+            if ($amount > $max_amount) {
+                $max_amount = $amount;
+                $max_day = $day;
+            }
+        }
+
+        $avg = $count > 0 ? $sum / $count : 0.0;
+        $spike_threshold = $avg * 1.8;
+        $spike_days = [];
+        foreach ($series as $item) {
+            $amount = (float) ($item['amount'] ?? 0);
+            if ($amount > 0 && $amount >= $spike_threshold && $avg > 0) {
+                $spike_days[] = [
+                    'day' => (int) $item['day'],
+                    'amount' => $amount,
+                ];
+            }
+        }
+
+        return [
+            'series' => $series,
+            'avg' => $avg,
+            'max_day' => $max_day,
+            'max_amount' => $max_amount,
+            'spike_days' => $spike_days,
+        ];
+    }
+
+    private function render_front_daily_spend_timeline(array $analytics): string {
+        $series = $analytics['series'] ?? [];
+        if (empty($series)) return '';
+
+        $max = 0.0;
+        foreach ($series as $row) {
+            $max = max($max, (float) ($row['amount'] ?? 0));
+        }
+
+        $html = '<div class="ecopro-card ecopro-reveal">';
+        $html .= '<h2 style="margin:0 0 14px 0;color:#ffffff;">Gasto diario del mes</h2>';
+        $html .= '<div class="ecopro-daily-chart">';
+
+        foreach ($series as $row) {
+            $day = (int) ($row['day'] ?? 0);
+            $amount = (float) ($row['amount'] ?? 0);
+            $height = $max > 0 ? max(8, (int) round(($amount / $max) * 120)) : 8;
+            $is_spike = false;
+            foreach (($analytics['spike_days'] ?? []) as $spike) {
+                if ((int) $spike['day'] === $day) {
+                    $is_spike = true;
+                    break;
+                }
+            }
+            $bar_class = $is_spike ? ' ecopro-daily-bar-spike' : '';
+            $html .= '<div class="ecopro-daily-item" title="Día ' . esc_attr((string)$day) . ': ' . esc_attr(number_format($amount,2,',','.')) . ' €">';
+            $html .= '<div class="ecopro-daily-bar-wrap"><div class="ecopro-daily-bar' . $bar_class . '" style="height:' . esc_attr((string)$height) . 'px"></div></div>';
+            $html .= '<div class="ecopro-daily-label">' . esc_html((string)$day) . '</div>';
+            $html .= '</div>';
+        }
+
+        $html .= '</div>';
+
+        $html .= '<div class="ecopro-grid-3" style="margin-top:16px;">';
+        $html .= '<div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Media diaria</h3><div class="amount" style="font-size:22px;margin-top:8px;">' . esc_html(number_format((float)$analytics['avg'],2,',','.')) . ' €</div></div>';
+        $html .= '<div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Pico mayor</h3><div class="amount" style="font-size:22px;margin-top:8px;">' . esc_html(number_format((float)$analytics['max_amount'],2,',','.')) . ' €</div></div>';
+        $html .= '<div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Día más caro</h3><div class="amount" style="font-size:22px;margin-top:8px;">' . esc_html((string)($analytics['max_day'] ?: 0)) . '</div></div>';
+        $html .= '</div>';
+
+        if (!empty($analytics['spike_days'])) {
+            $chips = [];
+            foreach ($analytics['spike_days'] as $spike) {
+                $chips[] = '<span class="ecopro-chip">Día ' . esc_html((string)$spike['day']) . ' · ' . esc_html(number_format((float)$spike['amount'],2,',','.')) . ' €</span>';
+            }
+            $html .= '<div style="margin-top:14px;"><h3 style="margin:0 0 10px 0;color:#ffffff;">Picos detectados</h3><div style="display:flex;gap:8px;flex-wrap:wrap;">' . implode('', $chips) . '</div></div>';
+        }
+
+        $html .= '</div>';
+        return $html;
+    }
+
+    private function render_front_category_bars(array $rows): string {
+        if (empty($rows)) return '';
+        $max = 0;
+        foreach ($rows as $r) {
+            $v = (float)$r->total;
+            if ($v > $max) $max = $v;
+        }
+        ob_start(); ?>
+        <div class="ecopro-card ecopro-reveal">
+        <h2 style="margin:0 0 14px 0;color:#ffffff;">Gasto por categoría</h2>
+        <div class="ecopro-category-bars">
+        <?php foreach($rows as $r):
+        if($r->type!=='expense') continue;
+        $pct = $max>0 ? round(($r->total/$max)*100) : 0; ?>
+        <div class="ecopro-category-bar">
+        <div class="ecopro-category-label"><?php echo esc_html($r->name); ?></div>
+        <div class="ecopro-category-track">
+        <div class="ecopro-category-fill" style="width:<?php echo esc_attr($pct); ?>%"></div>
+        </div>
+        <div class="ecopro-category-value"><?php echo esc_html(number_format($r->total,2,',','.')); ?> €</div>
+        </div>
+        <?php endforeach; ?>
+        </div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+public function dashboard(): string {
         $stored_hash = (string)get_option(self::OPTION_PASSWORD,'');
         if ($stored_hash==='') return $this->front_css().'<div class="ecopro-wrap"><p style="margin:0;color:#1d2327;">El administrador todavía no ha configurado la contraseña.</p></div>';
         if (isset($_POST['eco_login'])) {
@@ -1779,9 +1900,10 @@ final class EconomiaPro {
         $month_comparison = $this->get_month_comparison($period);
         $category_balance_rows = $this->get_category_balance_rows($period);
         $chart_data = $this->get_month_chart_data($period);
+        $daily_spend_analytics = $this->get_daily_spend_analytics($period);
         $categories_json = wp_json_encode(array_map(function($cat){ return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type]; }, $categories));
 
-        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).$this->render_front_projection_box($projection).$this->render_front_month_insights($month_insights).$this->render_front_month_comparison($month_comparison).$this->render_front_income_expense_chart($chart_data).$this->render_front_category_balance($category_balance_rows).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recurring_box($categories, $recurring_rows).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
+        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).$this->render_front_projection_box($projection).$this->render_front_month_insights($month_insights).$this->render_front_month_comparison($month_comparison).$this->render_front_income_expense_chart($chart_data).$this->render_front_category_balance($category_balance_rows).$this->render_front_category_bars($category_balance_rows).$this->render_front_daily_spend_timeline($daily_spend_analytics).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recurring_box($categories, $recurring_rows).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
     }
 }
 new EconomiaPro();
