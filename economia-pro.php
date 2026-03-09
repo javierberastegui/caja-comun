@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 4.1.1
+ * Version: 4.2
  * Author: Loki
  */
 
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '4.1.1';
+    private const VERSION = '4.2';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
     private const CRON_HOOK       = 'ecopro_daily_check';
@@ -19,6 +19,7 @@ final class EconomiaPro {
     private string $table_categories;
     private string $table_budgets;
     private string $table_notifications;
+    private string $table_recurring;
 
     public function __construct() {
         global $wpdb;
@@ -26,6 +27,7 @@ final class EconomiaPro {
         $this->table_categories    = $wpdb->prefix . 'eco_categories';
         $this->table_budgets       = $wpdb->prefix . 'eco_budgets';
         $this->table_notifications = $wpdb->prefix . 'eco_notifications';
+        $this->table_recurring     = $wpdb->prefix . 'eco_recurring';
 
         register_activation_hook(__FILE__, [$this,'install']);
         register_deactivation_hook(__FILE__, [$this,'deactivate']);
@@ -38,6 +40,9 @@ final class EconomiaPro {
         add_action('admin_post_ecopro_save_settings', [$this,'save_settings']);
         add_action('admin_post_ecopro_add_category', [$this,'add_category']);
         add_action('admin_post_ecopro_save_budget', [$this,'save_budget']);
+        add_action('admin_post_ecopro_add_recurring', [$this,'add_recurring']);
+        add_action('admin_post_ecopro_toggle_recurring', [$this,'toggle_recurring']);
+        add_action('admin_post_ecopro_run_recurring_now', [$this,'run_recurring_now']);
         add_action('admin_post_ecopro_mark_notice_read', [$this,'mark_notice_read']);
         add_action('admin_post_ecopro_mark_all_notices_read', [$this,'mark_all_notices_read']);
         add_action('admin_post_ecopro_export_csv', [$this,'export_csv']);
@@ -216,6 +221,25 @@ final class EconomiaPro {
         }
     }
 
+
+        if (!$this->table_exists($this->table_recurring)) {
+            $wpdb->query("CREATE TABLE {$this->table_recurring} (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                type VARCHAR(20) NOT NULL,
+                category_id BIGINT UNSIGNED NOT NULL,
+                amount DECIMAL(10,2) NOT NULL,
+                description VARCHAR(255) NOT NULL DEFAULT '',
+                frequency VARCHAR(20) NOT NULL DEFAULT 'monthly',
+                next_run DATE NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                last_run DATETIME NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY eco_recurring_active (is_active),
+                KEY eco_recurring_next_run (next_run)
+            ) {$charset}");
+        }
+
     private function unique_slug(string $name, int $exclude_id = 0): string {
         global $wpdb;
         $base = sanitize_title($name);
@@ -253,6 +277,7 @@ final class EconomiaPro {
     }
 
     public function run_daily_checks(): void {
+        $this->process_recurring_transactions();
         global $wpdb;
         $period = $this->get_current_period();
         $rows = $this->get_budget_rows($period);
@@ -295,6 +320,161 @@ final class EconomiaPro {
         $result = $wpdb->query("UPDATE {$this->table_notifications} SET status = 'read' WHERE status = 'open'");
         if ($result === false) { error_log('economia-pro mark_all_notices_read DB error: '.$wpdb->last_error); $this->safe_back_redirect('db_error'); }
         $this->safe_back_redirect('all_notices_read');
+    }
+
+
+    private function get_recurring_rows(): array {
+        global $wpdb;
+        return $wpdb->get_results("SELECT r.*, c.name AS category_name FROM {$this->table_recurring} r LEFT JOIN {$this->table_categories} c ON c.id = r.category_id ORDER BY r.is_active DESC, r.next_run ASC, r.id DESC");
+    }
+
+    private function process_recurring_transactions(): void {
+        global $wpdb;
+        $today = current_time('Y-m-d');
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$this->table_recurring} WHERE is_active = 1 AND next_run <= %s ORDER BY next_run ASC, id ASC", $today));
+        if (empty($rows)) return;
+        foreach ($rows as $row) {
+            $wpdb->insert(
+                $this->table_transactions,
+                [
+                    'type' => $row->type,
+                    'category_id' => (int) $row->category_id,
+                    'amount' => (float) $row->amount,
+                    'description' => (string) $row->description . ' [auto]',
+                    'created_at' => current_time('mysql'),
+                ],
+                ['%s','%d','%f','%s','%s']
+            );
+            $next_run = $row->frequency === 'weekly'
+                ? date('Y-m-d', strtotime($row->next_run . ' +7 days'))
+                : date('Y-m-d', strtotime($row->next_run . ' +1 month'));
+            $wpdb->update(
+                $this->table_recurring,
+                ['next_run' => $next_run, 'last_run' => current_time('mysql')],
+                ['id' => (int)$row->id],
+                ['%s','%s'],
+                ['%d']
+            );
+        }
+    }
+
+    public function add_recurring(): void {
+        check_admin_referer('ecopro_add_recurring');
+        if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
+        global $wpdb;
+        $type = isset($_POST['type']) ? sanitize_text_field(wp_unslash($_POST['type'])) : 'expense';
+        $category_id = isset($_POST['category_id']) ? absint($_POST['category_id']) : 0;
+        $amount = isset($_POST['amount']) ? (float) $_POST['amount'] : 0;
+        $description = isset($_POST['description']) ? sanitize_text_field(wp_unslash($_POST['description'])) : '';
+        $frequency = isset($_POST['frequency']) ? sanitize_text_field(wp_unslash($_POST['frequency'])) : 'monthly';
+        $next_run = isset($_POST['next_run']) ? sanitize_text_field(wp_unslash($_POST['next_run'])) : '';
+        if (!in_array($type, ['income','expense'], true) || $category_id <= 0 || $amount <= 0 || $description === '' || !in_array($frequency, ['weekly','monthly'], true) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $next_run)) {
+            $this->safe_back_redirect('invalid');
+        }
+        $cat_type = $wpdb->get_var($wpdb->prepare("SELECT type FROM {$this->table_categories} WHERE id = %d", $category_id));
+        if ($cat_type !== $type) $this->safe_back_redirect('type_mismatch');
+        $result = $wpdb->insert(
+            $this->table_recurring,
+            ['type'=>$type,'category_id'=>$category_id,'amount'=>$amount,'description'=>$description,'frequency'=>$frequency,'next_run'=>$next_run,'is_active'=>1],
+            ['%s','%d','%f','%s','%s','%s','%d']
+        );
+        if ($result === false) $this->safe_back_redirect('db_error');
+        $this->safe_back_redirect('recurring_added');
+    }
+
+    public function toggle_recurring(): void {
+        check_admin_referer('ecopro_toggle_recurring');
+        if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
+        global $wpdb;
+        $id = isset($_POST['recurring_id']) ? absint($_POST['recurring_id']) : 0;
+        if ($id <= 0) $this->safe_back_redirect('invalid');
+        $row = $wpdb->get_row($wpdb->prepare("SELECT is_active FROM {$this->table_recurring} WHERE id = %d", $id));
+        if (!$row) $this->safe_back_redirect('invalid');
+        $new = (int)$row->is_active === 1 ? 0 : 1;
+        $wpdb->update($this->table_recurring, ['is_active'=>$new], ['id'=>$id], ['%d'], ['%d']);
+        $this->safe_back_redirect('recurring_toggled');
+    }
+
+    public function run_recurring_now(): void {
+        check_admin_referer('ecopro_run_recurring_now');
+        if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
+        $this->process_recurring_transactions();
+        $this->run_daily_checks();
+        $this->safe_back_redirect('recurring_ran');
+    }
+
+    private function render_recurring_box_admin(array $categories, array $rows): string {
+        ob_start(); ?>
+        <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <h2 style="margin-top:0;margin-bottom:0;">Movimientos recurrentes</h2>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('ecopro_run_recurring_now'); ?>
+                    <input type="hidden" name="action" value="ecopro_run_recurring_now">
+                    <button class="button">Procesar ahora</button>
+                </form>
+            </div>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+                <?php wp_nonce_field('ecopro_add_recurring'); ?>
+                <input type="hidden" name="action" value="ecopro_add_recurring">
+                <select name="type"><option value="income">Ingreso</option><option value="expense">Gasto</option></select>
+                <select name="category_id" required>
+                    <option value="">Categoría</option>
+                    <?php foreach ($categories as $cat): ?>
+                        <option value="<?php echo (int)$cat->id; ?>"><?php echo esc_html($cat->name); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <input type="number" step="0.01" min="0" name="amount" placeholder="Cantidad" required>
+                <input type="text" name="description" placeholder="Descripción" required>
+                <select name="frequency"><option value="monthly">Mensual</option><option value="weekly">Semanal</option></select>
+                <input type="date" name="next_run" required>
+                <button class="button button-primary">Añadir recurrente</button>
+            </form>
+            <table class="widefat striped" style="margin-top:16px;">
+                <thead><tr><th>Estado</th><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Frecuencia</th><th>Siguiente</th><th>Acción</th></tr></thead>
+                <tbody>
+                <?php if (!empty($rows)): foreach ($rows as $row): ?>
+                    <tr>
+                        <td><?php echo (int)$row->is_active === 1 ? 'Activo' : 'Pausado'; ?></td>
+                        <td><?php echo esc_html($row->type); ?></td>
+                        <td><?php echo esc_html($row->category_name ?: '—'); ?></td>
+                        <td><?php echo esc_html(number_format((float)$row->amount,2,',','.')); ?> €</td>
+                        <td><?php echo esc_html($row->frequency === 'weekly' ? 'Semanal' : 'Mensual'); ?></td>
+                        <td><?php echo esc_html($row->next_run); ?></td>
+                        <td>
+                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                                <?php wp_nonce_field('ecopro_toggle_recurring'); ?>
+                                <input type="hidden" name="action" value="ecopro_toggle_recurring">
+                                <input type="hidden" name="recurring_id" value="<?php echo (int)$row->id; ?>">
+                                <button class="button button-small"><?php echo (int)$row->is_active === 1 ? 'Pausar' : 'Activar'; ?></button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; else: ?>
+                    <tr><td colspan="7">No hay movimientos recurrentes.</td></tr>
+                <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php return ob_get_clean();
+    }
+
+    private function render_front_recurring_box(array $categories, array $rows): string {
+        $html = '<div class="ecopro-card ecopro-reveal"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><h2 style="margin:0;color:#ffffff;">Movimientos recurrentes</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'.wp_nonce_field('ecopro_run_recurring_now','_wpnonce',true,false).'<input type="hidden" name="action" value="ecopro_run_recurring_now"><button class="ecopro-btn" type="submit">Procesar ahora</button></form></div>';
+        $html .= '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" class="ecopro-form" style="margin-top:12px;">'.wp_nonce_field('ecopro_add_recurring','_wpnonce',true,false).'<input type="hidden" name="action" value="ecopro_add_recurring"><select name="type" class="ecopro-select"><option value="income">Ingreso</option><option value="expense">Gasto</option></select><select name="category_id" class="ecopro-select" required><option value="">Categoría</option>';
+        foreach ($categories as $cat) {
+            $html .= '<option value="'.(int)$cat->id.'">'.esc_html($cat->name).'</option>';
+        }
+        $html .= '</select><input type="number" step="0.01" min="0" name="amount" placeholder="Cantidad" class="ecopro-input" required><input type="text" name="description" placeholder="Descripción" class="ecopro-input" required><select name="frequency" class="ecopro-select"><option value="monthly">Mensual</option><option value="weekly">Semanal</option></select><input type="date" name="next_run" class="ecopro-input" required><button type="submit" class="ecopro-btn">Añadir recurrente</button></form>';
+        $html .= '<div class="ecopro-table-wrap" style="margin-top:16px;"><table class="ecopro-table"><thead><tr><th>Estado</th><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Frecuencia</th><th>Siguiente</th><th>Acción</th></tr></thead><tbody>';
+        if (!empty($rows)) {
+            foreach ($rows as $row) {
+                $html .= '<tr><td>'.((int)$row->is_active === 1 ? 'Activo' : 'Pausado').'</td><td>'.esc_html($row->type).'</td><td>'.esc_html($row->category_name ?: '—').'</td><td>'.esc_html(number_format((float)$row->amount,2,',','.')).' €</td><td>'.esc_html($row->frequency === 'weekly' ? 'Semanal' : 'Mensual').'</td><td>'.esc_html($row->next_run).'</td><td><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'.wp_nonce_field('ecopro_toggle_recurring','_wpnonce',true,false).'<input type="hidden" name="action" value="ecopro_toggle_recurring"><input type="hidden" name="recurring_id" value="'.(int)$row->id.'"><button type="submit" class="ecopro-btn" style="padding:8px 12px;">'.((int)$row->is_active === 1 ? 'Pausar' : 'Activar').'</button></form></td></tr>';
+            }
+        } else {
+            $html .= '<tr><td colspan="7">No hay movimientos recurrentes.</td></tr>';
+        }
+        return $html . '</tbody></table></div></div>';
     }
 
     private function get_current_period(): string { return current_time('Y-m'); }
@@ -884,6 +1064,9 @@ final class EconomiaPro {
             'tx_added'=>['ok','Movimiento guardado correctamente.'],
             'tx_updated'=>['ok','Movimiento actualizado correctamente.'],
             'budget_saved'=>['ok','Presupuesto guardado correctamente.'],
+            'recurring_added'=>['ok','Movimiento recurrente guardado correctamente.'],
+            'recurring_toggled'=>['ok','Estado del movimiento recurrente actualizado.'],
+            'recurring_ran'=>['ok','Movimientos recurrentes procesados.'],
             'notice_read'=>['ok','Alerta marcada como leída.'],
             'all_notices_read'=>['ok','Todas las alertas abiertas se marcaron como leídas.'],
             'invalid'=>['err','Faltan datos o no son válidos.'],
@@ -1031,6 +1214,7 @@ final class EconomiaPro {
         $rows = $this->get_filtered_transactions($filters);
         $categories = $this->get_categories();
         $notifications = $this->get_notifications();
+        $recurring_rows = $this->get_recurring_rows();
         $page_id=(int)get_option(self::OPTION_PAGE_ID,0);
         $pages=get_pages(['sort_column'=>'post_title','sort_order'=>'asc']);
         $edit_id = $this->get_edit_transaction_id();
@@ -1397,6 +1581,7 @@ final class EconomiaPro {
         $rows = $this->get_filtered_transactions($filters);
         $summary = $this->get_front_category_summary();
         $notifications = $this->get_notifications();
+        $recurring_rows = $this->get_recurring_rows();
         $monthly_summary = $this->get_monthly_summary();
         $edit_id = $this->get_edit_transaction_id();
         $edit_tx = $edit_id ? $this->get_transaction($edit_id) : null;
@@ -1410,7 +1595,7 @@ final class EconomiaPro {
         $month_comparison = $this->get_month_comparison($period);
         $categories_json = wp_json_encode(array_map(function($cat){ return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type]; }, $categories));
 
-        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).$this->render_front_projection_box($projection).$this->render_front_month_insights($month_insights).$this->render_front_month_comparison($month_comparison).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
+        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).$this->render_front_projection_box($projection).$this->render_front_month_insights($month_insights).$this->render_front_month_comparison($month_comparison).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recurring_box($categories, $recurring_rows).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
     }
 }
 new EconomiaPro();
