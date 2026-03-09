@@ -357,3 +357,33 @@ canvas.ecopro-chart{
 .ecopro-progress > span.is-warn{
     background:linear-gradient(90deg,#ffd166 0%, #ff9f1c 100%);
 }
+
+
+/* v4.7.2 mobile-safe reveal fallback */
+.ecopro-reveal{
+    opacity:1 !important;
+    transform:none !important;
+}
+.ecopro-js .ecopro-reveal{
+    opacity:0 !important;
+    transform:translateY(12px) !important;
+}
+.ecopro-js .ecopro-reveal.is-visible{
+    opacity:1 !important;
+    transform:translateY(0) !important;
+}
+
+@media (max-width: 640px){
+    .ecopro-wrap{
+        overflow:hidden;
+    }
+    .ecopro-chart-wrap{
+        min-height:220px;
+    }
+    canvas.ecopro-chart,
+    canvas.ecopro-chart-donut,
+    canvas.ecopro-chart-donut-income-expense{
+        max-width:100% !important;
+        height:auto !important;
+    }
+}

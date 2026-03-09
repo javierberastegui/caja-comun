@@ -1,3 +1,4 @@
+document.documentElement.classList.add('ecopro-js');
 (function () {
   function revealCards() {
     var cards = document.querySelectorAll('.ecopro-reveal');

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 4.7.1
+ * Version: 4.7.3
  * Author: Loki
  */
 
@@ -10,9 +10,10 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '4.7.1';
+    private const VERSION = '4.7.3';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
+    private const COOKIE_FRONT_OK = 'ecopro_front_ok';
     private const CRON_HOOK       = 'ecopro_daily_check';
 
     private string $table_transactions;
@@ -36,17 +37,28 @@ final class EconomiaPro {
         add_action('wp_enqueue_scripts', [$this,'enqueue_front_assets']);
         add_action('admin_enqueue_scripts', [$this,'enqueue_admin_assets']);
         add_action('admin_post_ecopro_add_tx', [$this,'add_tx']);
+        add_action('admin_post_nopriv_ecopro_add_tx', [$this,'add_tx']);
         add_action('admin_post_ecopro_update_tx', [$this,'update_tx']);
+        add_action('admin_post_nopriv_ecopro_update_tx', [$this,'update_tx']);
         add_action('admin_post_ecopro_save_settings', [$this,'save_settings']);
         add_action('admin_post_ecopro_add_category', [$this,'add_category']);
+        add_action('admin_post_nopriv_ecopro_add_category', [$this,'add_category']);
         add_action('admin_post_ecopro_save_budget', [$this,'save_budget']);
+        add_action('admin_post_nopriv_ecopro_save_budget', [$this,'save_budget']);
         add_action('admin_post_ecopro_add_recurring', [$this,'add_recurring']);
+        add_action('admin_post_nopriv_ecopro_add_recurring', [$this,'add_recurring']);
         add_action('admin_post_ecopro_toggle_recurring', [$this,'toggle_recurring']);
+        add_action('admin_post_nopriv_ecopro_toggle_recurring', [$this,'toggle_recurring']);
         add_action('admin_post_ecopro_run_recurring_now', [$this,'run_recurring_now']);
+        add_action('admin_post_nopriv_ecopro_run_recurring_now', [$this,'run_recurring_now']);
         add_action('admin_post_ecopro_mark_notice_read', [$this,'mark_notice_read']);
+        add_action('admin_post_nopriv_ecopro_mark_notice_read', [$this,'mark_notice_read']);
         add_action('admin_post_ecopro_mark_all_notices_read', [$this,'mark_all_notices_read']);
+        add_action('admin_post_nopriv_ecopro_mark_all_notices_read', [$this,'mark_all_notices_read']);
         add_action('admin_post_ecopro_export_csv', [$this,'export_csv']);
+        add_action('admin_post_nopriv_ecopro_export_csv', [$this,'export_csv']);
         add_action('admin_post_ecopro_export_json', [$this,'export_json']);
+        add_action('admin_post_nopriv_ecopro_export_json', [$this,'export_json']);
         add_action(self::CRON_HOOK, [$this,'run_daily_checks']);
         add_shortcode('economia_dashboard', [$this,'dashboard']);
     }
@@ -1567,18 +1579,45 @@ final class EconomiaPro {
     }
 
     private function frontend_access_granted(): bool {
-        if (session_status()===PHP_SESSION_NONE && !headers_sent()) session_start();
+        if (!empty($_COOKIE[self::COOKIE_FRONT_OK]) && hash_equals('1', (string) $_COOKIE[self::COOKIE_FRONT_OK])) {
+            return true;
+        }
+        if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+            session_start();
+        }
         return !empty($_SESSION['ecopro_front_ok']);
     }
 
     private function mark_frontend_access_granted(): void {
-        if (session_status()===PHP_SESSION_NONE && !headers_sent()) session_start();
-        $_SESSION['ecopro_front_ok']=1;
+        if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+            session_start();
+        }
+        $_SESSION['ecopro_front_ok'] = 1;
+
+        if (!headers_sent()) {
+            $secure = is_ssl();
+            $path = defined('COOKIEPATH') && COOKIEPATH ? COOKIEPATH : '/';
+            setcookie(self::COOKIE_FRONT_OK, '1', [
+                'expires' => time() + DAY_IN_SECONDS * 30,
+                'path' => $path,
+                'domain' => '',
+                'secure' => $secure,
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
+            $_COOKIE[self::COOKIE_FRONT_OK] = '1';
+        }
     }
 
     private function safe_back_redirect(string $notice=''): void {
         $referer = wp_get_referer();
-        if (!$referer) $referer = admin_url('admin.php?page=eco-pro');
+        if (!$referer) {
+            $page_id = (int) get_option(self::OPTION_PAGE_ID, 0);
+            $referer = $page_id > 0 ? get_permalink($page_id) : home_url('/');
+            if (!$referer) {
+                $referer = admin_url('admin.php?page=eco-pro');
+            }
+        }
         $referer = remove_query_arg('edit_tx', $referer);
         if ($notice !== '') $referer = add_query_arg('eco_notice', $notice, $referer);
         wp_safe_redirect($referer); exit;
