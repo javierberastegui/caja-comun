@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 4.2
+ * Version: 4.2.1
  * Author: Loki
  */
 
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '4.2';
+    private const VERSION = '4.2.1';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
     private const CRON_HOOK       = 'ecopro_daily_check';
@@ -219,8 +219,6 @@ final class EconomiaPro {
                 KEY eco_notice_created (created_at)
             ) {$charset}");
         }
-    }
-
 
         if (!$this->table_exists($this->table_recurring)) {
             $wpdb->query("CREATE TABLE {$this->table_recurring} (
@@ -239,6 +237,7 @@ final class EconomiaPro {
                 KEY eco_recurring_next_run (next_run)
             ) {$charset}");
         }
+    }
 
     private function unique_slug(string $name, int $exclude_id = 0): string {
         global $wpdb;
