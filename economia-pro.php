@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 4.3.1
+ * Version: 4.4
  * Author: Loki
  */
 
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '4.3.1';
+    private const VERSION = '4.4';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
     private const CRON_HOOK       = 'ecopro_daily_check';
@@ -46,6 +46,7 @@ final class EconomiaPro {
         add_action('admin_post_ecopro_mark_notice_read', [$this,'mark_notice_read']);
         add_action('admin_post_ecopro_mark_all_notices_read', [$this,'mark_all_notices_read']);
         add_action('admin_post_ecopro_export_csv', [$this,'export_csv']);
+        add_action('admin_post_ecopro_export_json', [$this,'export_json']);
         add_action(self::CRON_HOOK, [$this,'run_daily_checks']);
         add_shortcode('economia_dashboard', [$this,'dashboard']);
     }
@@ -652,10 +653,16 @@ final class EconomiaPro {
         ob_start(); ?>
         <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
             <h2 style="margin-top:0;"><?php echo esc_html($title); ?></h2>
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-bottom:12px;">
-                <input type="hidden" name="action" value="ecopro_export_csv">
-                <button class="button">Exportar CSV</button>
-            </form>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="ecopro_export_csv">
+                    <button class="button">Exportar CSV</button>
+                </form>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="ecopro_export_json">
+                    <button class="button">Exportar JSON</button>
+                </form>
+            </div>
             <p style="margin:0 0 14px 0;color:#50575e;"><?php echo esc_html($cmp['current_period']); ?> vs <?php echo esc_html($cmp['previous_period']); ?></p>
             <table class="widefat striped">
                 <thead><tr><th>Métrica</th><th>Mes actual</th><th>Mes anterior</th><th>Diferencia</th></tr></thead>
@@ -1004,6 +1011,22 @@ final class EconomiaPro {
     private function render_front_projection_box(array $p): string {
         $balance_class = $p['projected_balance'] >= 0 ? 'ecopro-ok' : 'ecopro-danger';
         return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Proyección fin de mes</h2><p class="ecopro-muted" style="margin-bottom:12px;">Mes '.esc_html($p['period']).' · día '.(int)$p['day_of_month'].' de '.(int)$p['days_in_month'].' · patrón '.esc_html($p['pattern']).' · cálculo automático</p><p class="ecopro-muted" style="margin-bottom:12px;">Ingreso proyectado: media histórica automática si hay historial suficiente; si no, extrapolación lineal.</p><div class="ecopro-grid-3"><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Ingreso proyectado</h3><div class="amount" style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_income'],2,',','.')).' €</div></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Gasto proyectado</h3><div class="amount" style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_expense'],2,',','.')).' €</div></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Balance proyectado</h3><div class="amount" style="font-size:22px;margin-top:6px;"><span class="'.$balance_class.'">'.esc_html(number_format((float)$p['projected_balance'],2,',','.')).' €</span></div></div></div></div>';
+    }
+
+    public function export_json(): void {
+        if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
+        global $wpdb;
+        $rows = $wpdb->get_results("SELECT id,created_at,type,category_id,amount,description FROM {$this->table_transactions} ORDER BY created_at DESC", ARRAY_A);
+        nocache_headers();
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename=economia-transacciones.json');
+        echo wp_json_encode([
+            'generated_at' => current_time('mysql'),
+            'plugin' => 'economia-pro',
+            'version' => self::VERSION,
+            'transactions' => $rows,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        exit;
     }
 
     private function render_monthly_summary_box(array $rows, string $title = 'Resumen mensual'): string {
@@ -1557,7 +1580,7 @@ final class EconomiaPro {
             'eco_type' => $filters['type'],
             'eco_category' => $filters['category_id'] > 0 ? (string)$filters['category_id'] : '',
         ], function($v){ return $v !== '' && $v !== null; }), admin_url('admin-post.php')));
-        $html = '<div class="ecopro-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><h2 style="margin:0;color:#ffffff;">Últimos movimientos</h2><a class="ecopro-btn" href="'.$export_url.'" style="text-decoration:none;">Exportar CSV</a></div>';
+        $html = '<div class="ecopro-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><h2 style="margin:0;color:#ffffff;">Últimos movimientos</h2><div style="display:flex;gap:8px;flex-wrap:wrap;"><a class="ecopro-btn" href="'.$export_url.'" style="text-decoration:none;">Exportar CSV</a><a class="ecopro-btn" href="'.esc_url(admin_url('admin-post.php?action=ecopro_export_json')).'" style="text-decoration:none;">Exportar JSON</a></div></div>';
         $html .= '<form method="get" action="" class="ecopro-form" style="margin-top:12px;margin-bottom:12px;"><input type="month" name="eco_month" value="'.esc_attr($filters['month']).'" class="ecopro-input"><select name="eco_type" class="ecopro-select"><option value="">Todos</option><option value="income"'.selected($filters['type'],'income',false).'>Ingreso</option><option value="expense"'.selected($filters['type'],'expense',false).'>Gasto</option></select><select name="eco_category" class="ecopro-select"><option value="0">Todas las categorías</option>';
         foreach ($categories as $cat) {
             $html .= '<option value="'.(int)$cat->id.'"'.selected((int)$filters['category_id'], (int)$cat->id, false).'>'.esc_html($cat->name).'</option>';
