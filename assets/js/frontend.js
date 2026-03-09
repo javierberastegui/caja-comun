@@ -64,6 +64,32 @@
         });
       });
 
+
+      var incomeExpenseCharts = document.querySelectorAll('canvas.ecopro-chart-donut-income-expense');
+      incomeExpenseCharts.forEach(function(canvas){
+        var income = parseFloat(canvas.dataset.income || '0');
+        var expense = parseFloat(canvas.dataset.expense || '0');
+        new Chart(canvas, {
+          type: 'doughnut',
+          data: {
+            labels: ['Ingresos', 'Gastos'],
+            datasets: [{
+              data: [income, expense],
+              backgroundColor: ['#86f0b0', '#ff8c8c'],
+              borderColor: 'rgba(255,255,255,0.08)',
+              borderWidth: 1
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'bottom', labels: { color: '#eef4ff' } }
+            }
+          }
+        });
+      });
+
       donutCharts.forEach(function(canvas){
         var labels = [];
         var values = [];
