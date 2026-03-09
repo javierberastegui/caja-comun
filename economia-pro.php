@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 4.0
+ * Version: 4.1
  * Author: Loki
  */
 
@@ -10,10 +10,9 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '4.0';
+    private const VERSION = '4.1';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
-    private const OPTION_SAVINGS_GOAL = 'ecopro_savings_goal';
     private const CRON_HOOK       = 'ecopro_daily_check';
 
     private string $table_transactions;
@@ -420,6 +419,95 @@ final class EconomiaPro {
 
 
 
+
+    private function get_month_comparison(string $period = ''): array {
+        global $wpdb;
+        if ($period === '') {
+            $period = $this->get_current_period();
+        }
+        $current_start = $period . '-01 00:00:00';
+        $current_end = date('Y-m-d H:i:s', strtotime($current_start . ' +1 month'));
+        $previous_period = date('Y-m', strtotime($current_start . ' -1 month'));
+        $previous_start = $previous_period . '-01 00:00:00';
+        $previous_end = date('Y-m-d H:i:s', strtotime($previous_start . ' +1 month'));
+
+        $current_income = (float) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(amount),0) FROM {$this->table_transactions} WHERE type='income' AND created_at >= %s AND created_at < %s",
+            $current_start, $current_end
+        ));
+        $current_expense = (float) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(amount),0) FROM {$this->table_transactions} WHERE type='expense' AND created_at >= %s AND created_at < %s",
+            $current_start, $current_end
+        ));
+        $previous_income = (float) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(amount),0) FROM {$this->table_transactions} WHERE type='income' AND created_at >= %s AND created_at < %s",
+            $previous_start, $previous_end
+        ));
+        $previous_expense = (float) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(amount),0) FROM {$this->table_transactions} WHERE type='expense' AND created_at >= %s AND created_at < %s",
+            $previous_start, $previous_end
+        ));
+
+        $current_balance = $current_income - $current_expense;
+        $previous_balance = $previous_income - $previous_expense;
+
+        return [
+            'current_period' => $period,
+            'previous_period' => $previous_period,
+            'current_income' => $current_income,
+            'current_expense' => $current_expense,
+            'current_balance' => $current_balance,
+            'previous_income' => $previous_income,
+            'previous_expense' => $previous_expense,
+            'previous_balance' => $previous_balance,
+            'income_delta' => $current_income - $previous_income,
+            'expense_delta' => $current_expense - $previous_expense,
+            'balance_delta' => $current_balance - $previous_balance,
+        ];
+    }
+
+    private function render_month_comparison_admin(array $cmp, string $title = 'Comparativa mensual'): string {
+        $income_up = (float) $cmp['income_delta'] >= 0;
+        $expense_up = (float) $cmp['expense_delta'] >= 0;
+        $balance_up = (float) $cmp['balance_delta'] >= 0;
+        ob_start(); ?>
+        <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
+            <h2 style="margin-top:0;"><?php echo esc_html($title); ?></h2>
+            <p style="margin:0 0 14px 0;color:#50575e;"><?php echo esc_html($cmp['current_period']); ?> vs <?php echo esc_html($cmp['previous_period']); ?></p>
+            <table class="widefat striped">
+                <thead><tr><th>Métrica</th><th>Mes actual</th><th>Mes anterior</th><th>Diferencia</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td>Ingresos</td>
+                        <td><?php echo esc_html(number_format((float)$cmp['current_income'],2,',','.')); ?> €</td>
+                        <td><?php echo esc_html(number_format((float)$cmp['previous_income'],2,',','.')); ?> €</td>
+                        <td style="<?php echo esc_attr($income_up ? 'color:#1e4620;font-weight:700;' : 'color:#b32d2e;font-weight:700;'); ?>"><?php echo esc_html(number_format((float)$cmp['income_delta'],2,',','.')); ?> €</td>
+                    </tr>
+                    <tr>
+                        <td>Gastos</td>
+                        <td><?php echo esc_html(number_format((float)$cmp['current_expense'],2,',','.')); ?> €</td>
+                        <td><?php echo esc_html(number_format((float)$cmp['previous_expense'],2,',','.')); ?> €</td>
+                        <td style="<?php echo esc_attr($expense_up ? 'color:#b32d2e;font-weight:700;' : 'color:#1e4620;font-weight:700;'); ?>"><?php echo esc_html(number_format((float)$cmp['expense_delta'],2,',','.')); ?> €</td>
+                    </tr>
+                    <tr>
+                        <td>Balance</td>
+                        <td><?php echo esc_html(number_format((float)$cmp['current_balance'],2,',','.')); ?> €</td>
+                        <td><?php echo esc_html(number_format((float)$cmp['previous_balance'],2,',','.')); ?> €</td>
+                        <td style="<?php echo esc_attr($balance_up ? 'color:#1e4620;font-weight:700;' : 'color:#b32d2e;font-weight:700;'); ?>"><?php echo esc_html(number_format((float)$cmp['balance_delta'],2,',','.')); ?> €</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <?php return ob_get_clean();
+    }
+
+    private function render_front_month_comparison(array $cmp): string {
+        $incomeClass = (float) $cmp['income_delta'] >= 0 ? 'ecopro-ok' : 'ecopro-danger';
+        $expenseClass = (float) $cmp['expense_delta'] >= 0 ? 'ecopro-danger' : 'ecopro-ok';
+        $balanceClass = (float) $cmp['balance_delta'] >= 0 ? 'ecopro-ok' : 'ecopro-danger';
+        return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Comparativa mensual</h2><p class="ecopro-muted" style="margin-bottom:12px;">'.esc_html($cmp['current_period']).' vs '.esc_html($cmp['previous_period']).'</p><div class="ecopro-grid-3"><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Ingresos</h3><div class="amount" style="font-size:22px;margin-top:8px;">'.esc_html(number_format((float)$cmp['current_income'],2,',','.')).' €</div><p class="'.$incomeClass.'" style="margin:8px 0 0 0;">Δ '.esc_html(number_format((float)$cmp['income_delta'],2,',','.')).' €</p></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Gastos</h3><div class="amount" style="font-size:22px;margin-top:8px;">'.esc_html(number_format((float)$cmp['current_expense'],2,',','.')).' €</div><p class="'.$expenseClass.'" style="margin:8px 0 0 0;">Δ '.esc_html(number_format((float)$cmp['expense_delta'],2,',','.')).' €</p></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Balance</h3><div class="amount" style="font-size:22px;margin-top:8px;">'.esc_html(number_format((float)$cmp['current_balance'],2,',','.')).' €</div><p class="'.$balanceClass.'" style="margin:8px 0 0 0;">Δ '.esc_html(number_format((float)$cmp['balance_delta'],2,',','.')).' €</p></div></div></div>';
+    }
+
     private function get_month_insights(string $period = ''): array {
         global $wpdb;
         if ($period === '') {
@@ -451,8 +539,6 @@ final class EconomiaPro {
             LIMIT 1
         ", $start, $end));
 
-        $goal = (float) get_option(self::OPTION_SAVINGS_GOAL, 0);
-        $goal_progress = $goal > 0 ? max(0, min(100, ($savings / $goal) * 100)) : 0;
         return [
             'income' => $income,
             'expense' => $expense,
@@ -460,8 +546,6 @@ final class EconomiaPro {
             'savings_rate' => $rate,
             'top_name' => $top ? (string) $top->name : '',
             'top_total' => $top ? (float) $top->total : 0.0,
-            'goal' => $goal,
-            'goal_progress' => $goal_progress,
         ];
     }
 
@@ -471,17 +555,12 @@ final class EconomiaPro {
         ob_start(); ?>
         <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
             <h2 style="margin-top:0;"><?php echo esc_html($title); ?></h2>
-            <div style="display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:12px;margin-bottom:14px;">
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:12px;margin-bottom:14px;">
                 <div style="border:1px solid #ddd;border-radius:8px;padding:12px;"><strong>Ahorro</strong><div><?php echo esc_html(number_format((float)$insights['savings'],2,',','.')); ?> €</div></div>
                 <div style="border:1px solid #ddd;border-radius:8px;padding:12px;"><strong>Tasa de ahorro</strong><div><?php echo esc_html(number_format($rate,1,',','.')); ?>%</div></div>
-                <div style="border:1px solid #ddd;border-radius:8px;padding:12px;"><strong>Objetivo</strong><div><?php echo (float)$insights['goal'] > 0 ? esc_html(number_format((float)$insights['goal'],2,',','.')) . ' €' : '—'; ?></div></div>
                 <div style="border:1px solid #ddd;border-radius:8px;padding:12px;"><strong>Top gasto</strong><div><?php echo $insights['top_name'] ? esc_html($insights['top_name']) . ' · ' . esc_html(number_format((float)$insights['top_total'],2,',','.')) . ' €' : '—'; ?></div></div>
             </div>
             <div class="ecopro-progress"><span class="<?php echo esc_attr($bar_class); ?>" style="width:<?php echo esc_attr((string)$rate); ?>%"></span></div>
-            <?php if ((float)$insights['goal'] > 0): ?>
-                <p style="margin:12px 0 8px 0;color:#50575e;"><strong>Progreso objetivo:</strong> <?php echo esc_html(number_format((float)$insights['goal_progress'],1,',','.')); ?>%</p>
-                <div class="ecopro-progress"><span class="<?php echo esc_attr((float)$insights['goal_progress'] >= 100 ? 'is-ok' : 'is-warn'); ?>" style="width:<?php echo esc_attr((string)$insights['goal_progress']); ?>%"></span></div>
-            <?php endif; ?>
         </div>
         <?php return ob_get_clean();
     }
@@ -490,10 +569,7 @@ final class EconomiaPro {
         $rate = (float) $insights['savings_rate'];
         $bar_class = $rate >= 20 ? 'is-ok' : ($rate >= 10 ? 'is-warn' : 'is-danger');
         $top = $insights['top_name'] ? '<span class="ecopro-chip">'.$this->get_category_icon((string)$insights['top_name'], 'expense').' '.esc_html((string)$insights['top_name']).' · '.esc_html(number_format((float)$insights['top_total'],2,',','.')).' €</span>' : '—';
-        $goal = (float) $insights['goal'];
-        $goalCard = $goal > 0 ? '<div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Objetivo ahorro</h3><div class="amount" style="font-size:24px;margin-top:8px;">'.esc_html(number_format($goal,2,',','.')).' €</div></div>' : '';
-        $goalProgress = $goal > 0 ? '<p class="ecopro-muted" style="margin:12px 0 8px 0;"><strong>Progreso objetivo:</strong> '.esc_html(number_format((float)$insights['goal_progress'],1,',','.')).'%</p><div class="ecopro-progress"><span class="'.((float)$insights['goal_progress'] >= 100 ? 'is-ok' : 'is-warn').'" style="width:'.$insights['goal_progress'].'%"></span></div>' : '';
-        return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Insights del mes</h2><div class="ecopro-grid-4"><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Ahorro</h3><div class="amount" style="font-size:24px;margin-top:8px;">'.esc_html(number_format((float)$insights['savings'],2,',','.')).' €</div></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Tasa de ahorro</h3><div class="amount" style="font-size:24px;margin-top:8px;">'.esc_html(number_format($rate,1,',','.')).'%</div></div>'.$goalCard.'<div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Top gasto</h3><div style="margin-top:8px;">'.$top.'</div></div></div><div class="ecopro-progress" style="margin-top:14px;"><span class="'.$bar_class.'" style="width:'.$rate.'%"></span></div>'.$goalProgress.'</div>';
+        return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Insights del mes</h2><div class="ecopro-grid-3"><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Ahorro</h3><div class="amount" style="font-size:24px;margin-top:8px;">'.esc_html(number_format((float)$insights['savings'],2,',','.')).' €</div></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Tasa de ahorro</h3><div class="amount" style="font-size:24px;margin-top:8px;">'.esc_html(number_format($rate,1,',','.')).'%</div></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Top gasto</h3><div style="margin-top:8px;">'.$top.'</div></div></div><div class="ecopro-progress" style="margin-top:14px;"><span class="'.$bar_class.'" style="width:'.$rate.'%"></span></div></div>';
     }
 
     private function get_daily_expense_series(string $period = ''): array {
@@ -968,6 +1044,8 @@ final class EconomiaPro {
         $expense_category_rows = $this->get_expense_by_category($period);
         $daily_expense_series = $this->get_daily_expense_series($period);
         $month_insights = $this->get_month_insights($period);
+        $month_comparison = $this->get_month_comparison($period);
+        $month_comparison = $this->get_month_comparison($period);
         $month_insights = $this->get_month_insights($period);
         $daily_expense_series = $this->get_daily_expense_series($period);
         $projection = $this->get_month_projection();
@@ -984,9 +1062,7 @@ final class EconomiaPro {
                         <h2 style="margin-top:0;">Ajustes</h2><p><code>[economia_dashboard]</code></p>
                         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>"><?php wp_nonce_field('ecopro_save_settings'); ?><input type="hidden" name="action" value="ecopro_save_settings">
                             <p><label><strong>Página frontend</strong></label><br><select name="ecopro_front_page" style="width:100%;max-width:360px;"><option value="0">— Sin sincronizar página —</option><?php foreach ($pages as $page): ?><option value="<?php echo esc_attr((string)$page->ID); ?>" <?php selected($page_id,(int)$page->ID); ?>><?php echo esc_html($page->post_title.' (#'.$page->ID.')'); ?></option><?php endforeach; ?></select></p>
-                            <?php $savings_goal = (float) get_option(self::OPTION_SAVINGS_GOAL, 0); ?>
                             <p><label><strong>Contraseña del frontend</strong></label><br><input type="password" name="eco_pass" placeholder="Escribe una nueva contraseña" style="width:100%;max-width:360px;"></p>
-                            <p><label><strong>Objetivo de ahorro mensual</strong></label><br><input type="number" step="0.01" min="0" name="ecopro_savings_goal" value="<?php echo esc_attr((string)$savings_goal); ?>" placeholder="Ej: 1200" style="width:100%;max-width:360px;"></p>
                             <p style="max-width:520px;color:#50575e;">La proyección de ingresos ahora se calcula automáticamente según el histórico detectado por el plugin.</p>
                             <p><button type="submit" class="button button-primary">Guardar ajustes</button></p>
                         </form>
@@ -1036,6 +1112,7 @@ final class EconomiaPro {
                     </div>
                     <?php echo $this->render_projection_box($projection); ?>
                     <?php echo $this->render_month_insights_admin($month_insights); ?>
+                    <?php echo $this->render_month_comparison_admin($month_comparison); ?>
                     <?php echo $this->render_budget_box_admin($categories, $period, $budget_overview, $budget_rows); ?>
                     <?php echo $this->render_notifications_box($notifications); ?>
                 </div>
@@ -1080,9 +1157,7 @@ final class EconomiaPro {
         check_admin_referer('ecopro_save_settings');
         $password = isset($_POST['eco_pass']) ? sanitize_text_field(wp_unslash($_POST['eco_pass'])) : '';
         $page_id  = isset($_POST['ecopro_front_page']) ? absint($_POST['ecopro_front_page']) : 0;
-        $savings_goal = isset($_POST['ecopro_savings_goal']) ? (float) wp_unslash($_POST['ecopro_savings_goal']) : 0.0;
         update_option(self::OPTION_PAGE_ID, $page_id, false);
-        update_option(self::OPTION_SAVINGS_GOAL, $savings_goal, false);
         if ($password !== '') {
             update_option(self::OPTION_PASSWORD, password_hash($password, PASSWORD_DEFAULT), false);
             if ($page_id > 0 && get_post($page_id) instanceof WP_Post) {
@@ -1334,7 +1409,7 @@ final class EconomiaPro {
         $month_insights = $this->get_month_insights($period);
         $categories_json = wp_json_encode(array_map(function($cat){ return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type]; }, $categories));
 
-        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).$this->render_front_projection_box($projection).$this->render_front_month_insights($month_insights).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
+        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).$this->render_front_projection_box($projection).$this->render_front_month_insights($month_insights).$this->render_front_month_comparison($month_comparison).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
     }
 }
 new EconomiaPro();
