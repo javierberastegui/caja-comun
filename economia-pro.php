@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 4.4
+ * Version: 4.6
  * Author: Loki
  */
 
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '4.4';
+    private const VERSION = '4.6';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
     private const CRON_HOOK       = 'ecopro_daily_check';
@@ -599,6 +599,108 @@ final class EconomiaPro {
 
 
 
+
+
+    
+    private function get_month_chart_data(string $period = ''): array {
+        global $wpdb;
+
+        if ($period === '') {
+            $period = date('Y-m');
+        }
+
+        $start = $period . '-01 00:00:00';
+        $end = date('Y-m-d H:i:s', strtotime($start . ' +1 month'));
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT type, SUM(amount) as total
+             FROM {$this->table_transactions}
+             WHERE created_at >= %s AND created_at < %s
+             GROUP BY type",
+            $start, $end
+        ));
+
+        $data = ['income'=>0,'expense'=>0];
+        foreach ($rows as $r) {
+            if (isset($data[$r->type])) {
+                $data[$r->type] = (float)$r->total;
+            }
+        }
+
+        return $data;
+    }
+
+
+    private function get_category_balance_rows(string $period = ''): array {
+        global $wpdb;
+        $where = [];
+        $params = [];
+        if ($period !== '') {
+            $start = $period . '-01 00:00:00';
+            $end = date('Y-m-d H:i:s', strtotime($start . ' +1 month'));
+            $where[] = "t.created_at >= %s";
+            $where[] = "t.created_at < %s";
+            $params[] = $start;
+            $params[] = $end;
+        }
+        $sql = "
+            SELECT c.id, c.name, c.type,
+                   COALESCE(SUM(t.amount),0) AS total
+            FROM {$this->table_categories} c
+            LEFT JOIN {$this->table_transactions} t
+                ON t.category_id = c.id
+        ";
+        if (!empty($where)) {
+            $sql .= " AND " . implode(" AND ", $where);
+        }
+        $sql .= "
+            GROUP BY c.id, c.name, c.type
+            ORDER BY c.type ASC, total DESC, c.name ASC
+        ";
+        if (!empty($params)) {
+            $sql = $wpdb->prepare($sql, ...$params);
+        }
+        return $wpdb->get_results($sql);
+    }
+
+    private function render_category_balance_admin(array $rows, string $title = 'Balance por categorías'): string {
+        ob_start(); ?>
+        <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
+            <h2 style="margin-top:0;"><?php echo esc_html($title); ?></h2>
+            <table class="widefat striped">
+                <thead><tr><th>Tipo</th><th>Categoría</th><th>Total</th></tr></thead>
+                <tbody>
+                <?php if (!empty($rows)): foreach ($rows as $row): ?>
+                    <tr>
+                        <td><?php echo esc_html($row->type === 'income' ? 'Ingreso' : 'Gasto'); ?></td>
+                        <td><?php echo esc_html($row->name); ?></td>
+                        <td style="<?php echo esc_attr($row->type === 'income' ? 'color:#1e4620;font-weight:700;' : 'color:#b32d2e;font-weight:700;'); ?>">
+                            <?php echo esc_html(number_format((float)$row->total,2,',','.')); ?> €
+                        </td>
+                    </tr>
+                <?php endforeach; else: ?>
+                    <tr><td colspan="3">No hay datos por categoría todavía.</td></tr>
+                <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php return ob_get_clean();
+    }
+
+    private function render_front_category_balance(array $rows): string {
+        $html = '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Balance por categorías</h2><div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Tipo</th><th>Categoría</th><th>Total</th></tr></thead><tbody>';
+        if (!empty($rows)) {
+            foreach ($rows as $row) {
+                $type = $row->type === 'income' ? 'Ingreso' : 'Gasto';
+                $cls = $row->type === 'income' ? 'ecopro-ok' : 'ecopro-danger';
+                $label = '<span class="ecopro-chip">'.$this->get_category_icon($row->name, $row->type).' '.esc_html($row->name).'</span>';
+                $html .= '<tr><td>'.$type.'</td><td>'.$label.'</td><td><span class="'.$cls.'">'.esc_html(number_format((float)$row->total,2,',','.')).' €</span></td></tr>';
+            }
+        } else {
+            $html .= '<tr><td colspan="3">No hay datos por categoría todavía.</td></tr>';
+        }
+        return $html . '</tbody></table></div></div>';
+    }
 
     private function get_month_comparison(string $period = ''): array {
         global $wpdb;
@@ -1255,6 +1357,8 @@ final class EconomiaPro {
         $daily_expense_series = $this->get_daily_expense_series($period);
         $month_insights = $this->get_month_insights($period);
         $month_comparison = $this->get_month_comparison($period);
+        $category_balance_rows = $this->get_category_balance_rows($period);
+        $category_balance_rows = $this->get_category_balance_rows($period);
         $month_comparison = $this->get_month_comparison($period);
         $month_insights = $this->get_month_insights($period);
         $daily_expense_series = $this->get_daily_expense_series($period);
@@ -1323,6 +1427,7 @@ final class EconomiaPro {
                     <?php echo $this->render_projection_box($projection); ?>
                     <?php echo $this->render_month_insights_admin($month_insights); ?>
                     <?php echo $this->render_month_comparison_admin($month_comparison); ?>
+                    <?php echo $this->render_category_balance_admin($category_balance_rows); ?>
                     <?php echo $this->render_budget_box_admin($categories, $period, $budget_overview, $budget_rows); ?>
                     <?php echo $this->render_notifications_box($notifications); ?>
                 </div>
@@ -1619,9 +1724,10 @@ final class EconomiaPro {
         $daily_expense_series = $this->get_daily_expense_series($period);
         $month_insights = $this->get_month_insights($period);
         $month_comparison = $this->get_month_comparison($period);
+        $category_balance_rows = $this->get_category_balance_rows($period);
         $categories_json = wp_json_encode(array_map(function($cat){ return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type]; }, $categories));
 
-        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).$this->render_front_projection_box($projection).$this->render_front_month_insights($month_insights).$this->render_front_month_comparison($month_comparison).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recurring_box($categories, $recurring_rows).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
+        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).$this->render_front_projection_box($projection).$this->render_front_month_insights($month_insights).$this->render_front_month_comparison($month_comparison).$this->render_front_category_balance($category_balance_rows).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recurring_box($categories, $recurring_rows).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
     }
 }
 new EconomiaPro();
