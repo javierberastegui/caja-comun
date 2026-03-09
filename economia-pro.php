@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 4.2.1
+ * Version: 4.3
  * Author: Loki
  */
 
@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '4.2.1';
+    private const VERSION = '4.3';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
     private const CRON_HOOK       = 'ecopro_daily_check';
@@ -43,6 +43,7 @@ final class EconomiaPro {
         add_action('admin_post_ecopro_add_recurring', [$this,'add_recurring']);
         add_action('admin_post_ecopro_toggle_recurring', [$this,'toggle_recurring']);
         add_action('admin_post_ecopro_run_recurring_now', [$this,'run_recurring_now']);
+        add_action('admin_post_ecopro_export_csv', [$this,'export_csv']);
         add_action('admin_post_ecopro_mark_notice_read', [$this,'mark_notice_read']);
         add_action('admin_post_ecopro_mark_all_notices_read', [$this,'mark_all_notices_read']);
         add_action('admin_post_ecopro_export_csv', [$this,'export_csv']);
@@ -1001,6 +1002,23 @@ final class EconomiaPro {
         $balance_class = $p['projected_balance'] >= 0 ? 'ecopro-ok' : 'ecopro-danger';
         return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Proyección fin de mes</h2><p class="ecopro-muted" style="margin-bottom:12px;">Mes '.esc_html($p['period']).' · día '.(int)$p['day_of_month'].' de '.(int)$p['days_in_month'].' · patrón '.esc_html($p['pattern']).' · cálculo automático</p><p class="ecopro-muted" style="margin-bottom:12px;">Ingreso proyectado: media histórica automática si hay historial suficiente; si no, extrapolación lineal.</p><div class="ecopro-grid-3"><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Ingreso proyectado</h3><div class="amount" style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_income'],2,',','.')).' €</div></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Gasto proyectado</h3><div class="amount" style="font-size:22px;margin-top:6px;">'.esc_html(number_format((float)$p['projected_expense'],2,',','.')).' €</div></div><div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Balance proyectado</h3><div class="amount" style="font-size:22px;margin-top:6px;"><span class="'.$balance_class.'">'.esc_html(number_format((float)$p['projected_balance'],2,',','.')).' €</span></div></div></div></div>';
     }
+
+    
+    public function export_csv(): void {
+        if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
+        global $wpdb;
+        $rows = $wpdb->get_results("SELECT created_at,type,amount,description FROM {$this->table_transactions} ORDER BY created_at DESC");
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="economia-transacciones.csv"');
+        $out = fopen('php://output', 'w');
+        fputcsv($out,['fecha','tipo','cantidad','descripcion']);
+        foreach ($rows as $r){
+            fputcsv($out,[$r->created_at,$r->type,$r->amount,$r->description]);
+        }
+        fclose($out);
+        exit;
+    }
+
 
     private function render_monthly_summary_box(array $rows, string $title = 'Resumen mensual'): string {
         ob_start(); ?>
