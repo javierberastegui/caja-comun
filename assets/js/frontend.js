@@ -17,23 +17,14 @@ document.documentElement.classList.add('ecopro-js');
     cards.forEach(function(card){ observer.observe(card); });
   }
 
-  function loadChartJs(callback) {
-    if (window.Chart) {
-      callback();
-      return;
-    }
-    var script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
-    script.onload = callback;
-    document.head.appendChild(script);
-  }
 
   function initCharts() {
     var lineCharts = document.querySelectorAll('canvas.ecopro-chart');
     var donutCharts = document.querySelectorAll('canvas.ecopro-chart-donut');
     if (!lineCharts.length && !donutCharts.length) return;
-    loadChartJs(function(){
-      lineCharts.forEach(function(canvas){
+    if (!window.Chart) return;
+
+    lineCharts.forEach(function(canvas){
         var labels = [];
         var income = [];
         var expense = [];
@@ -120,7 +111,6 @@ document.documentElement.classList.add('ecopro-js');
           }
         });
       });
-    });
   }
 
   document.addEventListener('DOMContentLoaded', function(){

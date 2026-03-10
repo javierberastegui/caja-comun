@@ -1,36 +1,43 @@
-
 (function(){
+  function parseEuroNumber(text){
+    var cleaned = String(text || '').replace(/[^0-9,.-]/g, '');
+    if (!cleaned) return NaN;
+    cleaned = cleaned.replace(/\.(?=\d{3}(\D|$))/g, '');
+    cleaned = cleaned.replace(',', '.');
+    return parseFloat(cleaned);
+  }
+
+  function formatEuroNumber(value){
+    return Number(value || 0).toLocaleString('es-ES', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }) + ' €';
+  }
+
   function animateNumbers(){
-    document.querySelectorAll('.ecopro-card strong, .ecopro-card .amount').forEach(el=>{
-      const txt = el.textContent.replace(/[^0-9.,-]/g,'');
-      const num = parseFloat(txt.replace(',','.'));
-      if(isNaN(num)) return;
-      let start=0;
-      const dur=700;
-      const step = ts=>{
-        start += num/ (dur/16);
-        if(start>=num){el.textContent = num.toFixed(2).replace('.',',') + ' €';return;}
-        el.textContent = start.toFixed(2).replace('.',',') + ' €';
+    document.querySelectorAll('.ecopro-card strong, .ecopro-card .amount').forEach(function(el){
+      var num = parseEuroNumber(el.textContent);
+      if (isNaN(num)) return;
+      var current = 0;
+      var duration = 700;
+      var steps = Math.max(1, Math.round(duration / 16));
+      var increment = num / steps;
+
+      function step(){
+        current += increment;
+        if ((num >= 0 && current >= num) || (num < 0 && current <= num)) {
+          el.textContent = formatEuroNumber(num);
+          return;
+        }
+        el.textContent = formatEuroNumber(current);
         requestAnimationFrame(step);
-      };
+      }
+
       requestAnimationFrame(step);
     });
   }
 
-  function revealCards(){
-    document.querySelectorAll('.ecopro-card').forEach((el,i)=>{
-      el.style.opacity=0;
-      el.style.transform='translateY(12px)';
-      setTimeout(()=>{
-        el.style.transition='all .35s ease';
-        el.style.opacity=1;
-        el.style.transform='translateY(0)';
-      }, i*40);
-    });
-  }
-
-  document.addEventListener('DOMContentLoaded',function(){
-    revealCards();
-    setTimeout(animateNumbers,120);
+  document.addEventListener('DOMContentLoaded', function(){
+    setTimeout(animateNumbers, 120);
   });
 })();

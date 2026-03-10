@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Economia Pro
  * Description: Sistema financiero doméstico.
- * Version: 4.9
+ * Version: 5.1.0
  * Author: Loki
  */
 
@@ -10,10 +10,14 @@ if (!defined('ABSPATH')) exit;
 
 if (!class_exists('EconomiaPro')) {
 final class EconomiaPro {
-    private const VERSION = '4.9';
+    private const VERSION = '5.1.0';
+    private const OPTION_SCHEMA_VERSION = 'ecopro_schema_version';
+    private const SCHEMA_VERSION = '2';
     private const OPTION_PASSWORD = 'ecopro_front_password';
     private const OPTION_PAGE_ID  = 'ecopro_front_page_id';
+    private const OPTION_FRONT_SESSION_VERSION = 'ecopro_front_session_version';
     private const COOKIE_FRONT_OK = 'ecopro_front_ok';
+    private const FRONT_SESSION_TRANSIENT_PREFIX = 'ecopro_front_session_';
     private const CRON_HOOK       = 'ecopro_daily_check';
 
     private string $table_transactions;
@@ -40,6 +44,10 @@ final class EconomiaPro {
         add_action('admin_post_nopriv_ecopro_add_tx', [$this,'add_tx']);
         add_action('admin_post_ecopro_update_tx', [$this,'update_tx']);
         add_action('admin_post_nopriv_ecopro_update_tx', [$this,'update_tx']);
+        add_action('admin_post_ecopro_delete_tx', [$this,'delete_tx']);
+        add_action('admin_post_nopriv_ecopro_delete_tx', [$this,'delete_tx']);
+        add_action('admin_post_ecopro_duplicate_tx', [$this,'duplicate_tx']);
+        add_action('admin_post_nopriv_ecopro_duplicate_tx', [$this,'duplicate_tx']);
         add_action('admin_post_ecopro_save_settings', [$this,'save_settings']);
         add_action('admin_post_ecopro_add_category', [$this,'add_category']);
         add_action('admin_post_nopriv_ecopro_add_category', [$this,'add_category']);
@@ -49,6 +57,8 @@ final class EconomiaPro {
         add_action('admin_post_nopriv_ecopro_add_recurring', [$this,'add_recurring']);
         add_action('admin_post_ecopro_toggle_recurring', [$this,'toggle_recurring']);
         add_action('admin_post_nopriv_ecopro_toggle_recurring', [$this,'toggle_recurring']);
+        add_action('admin_post_ecopro_delete_recurring', [$this,'delete_recurring']);
+        add_action('admin_post_nopriv_ecopro_delete_recurring', [$this,'delete_recurring']);
         add_action('admin_post_ecopro_run_recurring_now', [$this,'run_recurring_now']);
         add_action('admin_post_nopriv_ecopro_run_recurring_now', [$this,'run_recurring_now']);
         add_action('admin_post_ecopro_mark_notice_read', [$this,'mark_notice_read']);
@@ -59,6 +69,8 @@ final class EconomiaPro {
         add_action('admin_post_nopriv_ecopro_export_csv', [$this,'export_csv']);
         add_action('admin_post_ecopro_export_json', [$this,'export_json']);
         add_action('admin_post_nopriv_ecopro_export_json', [$this,'export_json']);
+        add_action('admin_post_ecopro_front_logout', [$this,'logout_frontend']);
+        add_action('admin_post_nopriv_ecopro_front_logout', [$this,'logout_frontend']);
         add_action(self::CRON_HOOK, [$this,'run_daily_checks']);
         add_shortcode('economia_dashboard', [$this,'dashboard']);
     }
@@ -78,7 +90,7 @@ final class EconomiaPro {
         wp_enqueue_script(
             'ecopro-frontend',
             plugin_dir_url(__FILE__) . 'assets/js/frontend.js',
-            [],
+            ['chartjs'],
             self::VERSION,
             true
         );
@@ -107,9 +119,16 @@ final class EconomiaPro {
             self::VERSION
         );
         wp_enqueue_script(
+            'chartjs',
+            'https://cdn.jsdelivr.net/npm/chart.js',
+            [],
+            self::VERSION,
+            true
+        );
+        wp_enqueue_script(
             'ecopro-admin',
             plugin_dir_url(__FILE__) . 'assets/js/admin.js',
-            [],
+            ['chartjs'],
             self::VERSION,
             true
         );
@@ -120,8 +139,7 @@ final class EconomiaPro {
     }
 
     public function install(): void {
-        $this->create_or_update_tables();
-        $this->seed_default_categories();
+        $this->run_schema_migrations(true);
         $this->schedule_cron();
     }
 
@@ -137,9 +155,19 @@ final class EconomiaPro {
     }
 
     public function maybe_install(): void {
+        $this->run_schema_migrations();
+        $this->schedule_cron();
+    }
+
+    private function run_schema_migrations(bool $force = false): void {
+        $installed_version = (string) get_option(self::OPTION_SCHEMA_VERSION, '0');
+        if (!$force && version_compare($installed_version, self::SCHEMA_VERSION, '>=')) {
+            return;
+        }
+
         $this->create_or_update_tables();
         $this->seed_default_categories();
-        $this->schedule_cron();
+        update_option(self::OPTION_SCHEMA_VERSION, self::SCHEMA_VERSION, false);
     }
 
     private function table_exists(string $table): bool {
@@ -414,6 +442,17 @@ final class EconomiaPro {
         $this->safe_back_redirect('recurring_toggled');
     }
 
+    public function delete_recurring(): void {
+        check_admin_referer('ecopro_delete_recurring');
+        if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
+        global $wpdb;
+        $id = isset($_POST['recurring_id']) ? absint($_POST['recurring_id']) : 0;
+        if ($id <= 0) $this->safe_back_redirect('invalid');
+        $result = $wpdb->delete($this->table_recurring, ['id' => $id], ['%d']);
+        if ($result === false) { error_log('economia-pro delete_recurring DB error: '.$wpdb->last_error); $this->safe_back_redirect('db_error'); }
+        $this->safe_back_redirect('recurring_deleted');
+    }
+
     public function run_recurring_now(): void {
         check_admin_referer('ecopro_run_recurring_now');
         if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
@@ -460,14 +499,7 @@ final class EconomiaPro {
                         <td><?php echo esc_html(number_format((float)$row->amount,2,',','.')); ?> €</td>
                         <td><?php echo esc_html($row->frequency === 'weekly' ? 'Semanal' : 'Mensual'); ?></td>
                         <td><?php echo esc_html($row->next_run); ?></td>
-                        <td>
-                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                                <?php wp_nonce_field('ecopro_toggle_recurring'); ?>
-                                <input type="hidden" name="action" value="ecopro_toggle_recurring">
-                                <input type="hidden" name="recurring_id" value="<?php echo (int)$row->id; ?>">
-                                <button class="button button-small"><?php echo (int)$row->is_active === 1 ? 'Pausar' : 'Activar'; ?></button>
-                            </form>
-                        </td>
+                        <td><?php echo $this->render_recurring_action_forms($row, true); ?></td>
                     </tr>
                 <?php endforeach; else: ?>
                     <tr><td colspan="7">No hay movimientos recurrentes.</td></tr>
@@ -488,7 +520,7 @@ final class EconomiaPro {
         $html .= '<div class="ecopro-table-wrap" style="margin-top:16px;"><table class="ecopro-table"><thead><tr><th>Estado</th><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Frecuencia</th><th>Siguiente</th><th>Acción</th></tr></thead><tbody>';
         if (!empty($rows)) {
             foreach ($rows as $row) {
-                $html .= '<tr><td>'.((int)$row->is_active === 1 ? 'Activo' : 'Pausado').'</td><td>'.esc_html($row->type).'</td><td>'.esc_html($row->category_name ?: '—').'</td><td>'.esc_html(number_format((float)$row->amount,2,',','.')).' €</td><td>'.esc_html($row->frequency === 'weekly' ? 'Semanal' : 'Mensual').'</td><td>'.esc_html($row->next_run).'</td><td><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'.wp_nonce_field('ecopro_toggle_recurring','_wpnonce',true,false).'<input type="hidden" name="action" value="ecopro_toggle_recurring"><input type="hidden" name="recurring_id" value="'.(int)$row->id.'"><button type="submit" class="ecopro-btn" style="padding:8px 12px;">'.((int)$row->is_active === 1 ? 'Pausar' : 'Activar').'</button></form></td></tr>';
+                $html .= '<tr><td>'.((int)$row->is_active === 1 ? 'Activo' : 'Pausado').'</td><td>'.esc_html($row->type).'</td><td>'.esc_html($row->category_name ?: '—').'</td><td>'.esc_html(number_format((float)$row->amount,2,',','.')).' €</td><td>'.esc_html($row->frequency === 'weekly' ? 'Semanal' : 'Mensual').'</td><td>'.esc_html($row->next_run).'</td><td>'.$this->render_recurring_action_forms($row, false).'</td></tr>';
             }
         } else {
             $html .= '<tr><td colspan="7">No hay movimientos recurrentes.</td></tr>';
@@ -555,6 +587,7 @@ final class EconomiaPro {
     }
 
     public function export_csv(): void {
+        check_admin_referer('ecopro_export_csv');
         if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
         $filters = $this->get_filter_values();
         $rows = $this->get_filtered_transactions($filters, 0);
@@ -1135,9 +1168,20 @@ final class EconomiaPro {
     }
 
     public function export_json(): void {
+        check_admin_referer('ecopro_export_json');
         if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
-        global $wpdb;
-        $rows = $wpdb->get_results("SELECT id,created_at,type,category_id,amount,description FROM {$this->table_transactions} ORDER BY created_at DESC", ARRAY_A);
+        $filters = $this->get_filter_values();
+        $rows = array_map(static function($row): array {
+            return [
+                'id' => (int) $row->id,
+                'created_at' => (string) $row->created_at,
+                'type' => (string) $row->type,
+                'category_id' => (int) $row->category_id,
+                'category_name' => (string) ($row->category_name ?? ''),
+                'amount' => (float) $row->amount,
+                'description' => (string) $row->description,
+            ];
+        }, $this->get_filtered_transactions($filters, 0));
         nocache_headers();
         header('Content-Type: application/json; charset=utf-8');
         header('Content-Disposition: attachment; filename=economia-transacciones.json');
@@ -1145,6 +1189,7 @@ final class EconomiaPro {
             'generated_at' => current_time('mysql'),
             'plugin' => 'economia-pro',
             'version' => self::VERSION,
+            'filters' => $filters,
             'transactions' => $rows,
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         exit;
@@ -1203,6 +1248,20 @@ final class EconomiaPro {
         return esc_url($url);
     }
 
+    private function build_export_url(string $format, array $filters): string {
+        $action = $format === 'json' ? 'ecopro_export_json' : 'ecopro_export_csv';
+        $url = add_query_arg(array_filter([
+            'action' => $action,
+            'eco_month' => $filters['month'] ?? '',
+            'eco_type' => $filters['type'] ?? '',
+            'eco_category' => !empty($filters['category_id']) ? (string) $filters['category_id'] : '',
+            '_wpnonce' => wp_create_nonce($action),
+        ], static function($value) {
+            return $value !== '' && $value !== null;
+        }), admin_url('admin-post.php'));
+        return esc_url($url);
+    }
+
     private function get_notice_html(): string {
         $key = isset($_GET['eco_notice']) ? sanitize_text_field(wp_unslash($_GET['eco_notice'])) : '';
         if ($key === '') return '';
@@ -1216,6 +1275,8 @@ final class EconomiaPro {
             'recurring_ran'=>['ok','Movimientos recurrentes procesados.'],
             'notice_read'=>['ok','Alerta marcada como leída.'],
             'all_notices_read'=>['ok','Todas las alertas abiertas se marcaron como leídas.'],
+            'logged_out'=>['ok','Has cerrado el acceso del panel financiero.'],
+            'auth_failed'=>['err','La sesión de acceso no es válida o ha caducado.'],
             'invalid'=>['err','Faltan datos o no son válidos.'],
             'type_mismatch'=>['err','La categoría no coincide con el tipo de movimiento.'],
             'db_error'=>['err','No se pudo guardar en la base de datos.'],
@@ -1354,10 +1415,24 @@ final class EconomiaPro {
         <?php return ob_get_clean();
     }
 
+    private function get_release_label(string $change): string {
+        return 'Versión ' . self::VERSION . ' - ' . $change;
+    }
+
+    private function render_page_subtitle(string $change, bool $is_front = false): string {
+        $style = $is_front
+            ? 'margin:8px 0 18px 0;color:#9fb0c3;font-size:13px;letter-spacing:.02em;'
+            : 'margin:8px 0 18px 0;color:#50575e;font-size:13px;';
+
+        return '<p class="ecopro-page-subtitle" style="' . esc_attr($style) . '">' . esc_html($this->get_release_label($change)) . '</p>';
+    }
+
     public function admin_page(): void {
         if (!current_user_can('manage_options')) wp_die('No autorizado.');
         $totals = $this->get_totals();
         $filters = $this->get_filter_values();
+        $admin_export_csv_url = $this->build_export_url('csv', $filters);
+        $admin_export_json_url = $this->build_export_url('json', $filters);
         $rows = $this->get_filtered_transactions($filters);
         $categories = $this->get_categories();
         $notifications = $this->get_notifications();
@@ -1377,13 +1452,8 @@ final class EconomiaPro {
         $month_insights = $this->get_month_insights($period);
         $month_comparison = $this->get_month_comparison($period);
         $category_balance_rows = $this->get_category_balance_rows($period);
-        $category_balance_rows = $this->get_category_balance_rows($period);
-        $month_comparison = $this->get_month_comparison($period);
-        $month_insights = $this->get_month_insights($period);
-        $daily_expense_series = $this->get_daily_expense_series($period);
-        $projection = $this->get_month_projection();
         ?>
-        <div class="wrap"><h1>Economía Pro</h1><?php echo $this->get_notice_html(); ?>
+        <div class="wrap"><h1>Economía Pro</h1><?php echo $this->render_page_subtitle('acciones clave'); ?><?php echo $this->get_notice_html(); ?>
             <div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:16px;max-width:960px;margin:18px 0 24px 0;">
                 <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;"><strong>Ingresos</strong><div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($totals['income'],2,',','.')); ?> €</div></div>
                 <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;"><strong>Gastos</strong><div style="font-size:24px;margin-top:8px;"><?php echo esc_html(number_format($totals['expense'],2,',','.')); ?> €</div></div>
@@ -1439,15 +1509,17 @@ final class EconomiaPro {
                             </select>
                             <button class="button">Filtrar</button>
                             <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=eco-pro')); ?>">Reset</a>
-                            <button class="button button-secondary" type="submit" formaction="<?php echo esc_url(admin_url('admin-post.php?action=ecopro_export_csv')); ?>" formmethod="get">Exportar CSV</button>
+                            <a class="button button-secondary" href="<?php echo esc_url($admin_export_csv_url); ?>">Exportar CSV</a>
+                            <a class="button button-secondary" href="<?php echo esc_url($admin_export_json_url); ?>">Exportar JSON</a>
                         </form>
-                        <table class="widefat striped"><thead><tr><th>ID</th><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Descripción</th><th>Fecha</th><th>Acción</th></tr></thead><tbody><?php if(!empty($rows)): foreach($rows as $r): ?><tr><td><?php echo (int)$r->id; ?></td><td><?php echo $r->type==='income'?'Ingreso':'Gasto'; ?></td><td><?php echo esc_html($r->category_name ?: '—'); ?></td><td><?php echo esc_html(number_format((float)$r->amount,2,',','.')); ?> €</td><td><?php echo esc_html($r->description); ?></td><td><?php echo esc_html($r->created_at); ?></td><td><a href="<?php echo esc_url(admin_url('admin.php?page=eco-pro&edit_tx='.(int)$r->id)); ?>">Editar</a></td></tr><?php endforeach; else: ?><tr><td colspan="7">No hay movimientos todavía.</td></tr><?php endif; ?></tbody></table>
+                        <table class="widefat striped"><thead><tr><th>ID</th><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Descripción</th><th>Fecha</th><th>Acción</th></tr></thead><tbody><?php if(!empty($rows)): foreach($rows as $r): ?><tr><td><?php echo (int)$r->id; ?></td><td><?php echo $r->type==='income'?'Ingreso':'Gasto'; ?></td><td><?php echo esc_html($r->category_name ?: '—'); ?></td><td><?php echo esc_html(number_format((float)$r->amount,2,',','.')); ?> €</td><td><?php echo esc_html($r->description); ?></td><td><?php echo esc_html($r->created_at); ?></td><td><?php echo $this->render_tx_action_links($r, true); ?></td></tr><?php endforeach; else: ?><tr><td colspan="7">No hay movimientos todavía.</td></tr><?php endif; ?></tbody></table>
                     </div>
                     <?php echo $this->render_projection_box($projection); ?>
                     <?php echo $this->render_month_insights_admin($month_insights); ?>
                     <?php echo $this->render_month_comparison_admin($month_comparison); ?>
                     <?php echo $this->render_category_balance_admin($category_balance_rows); ?>
                     <?php echo $this->render_budget_box_admin($categories, $period, $budget_overview, $budget_rows); ?>
+                    <?php echo $this->render_budget_status_admin($budget_status_rows); ?>
                     <?php echo $this->render_notifications_box($notifications); ?>
                 </div>
             </div>
@@ -1490,13 +1562,18 @@ final class EconomiaPro {
         if (!current_user_can('manage_options')) wp_die('No autorizado.');
         check_admin_referer('ecopro_save_settings');
         $password = isset($_POST['eco_pass']) ? sanitize_text_field(wp_unslash($_POST['eco_pass'])) : '';
+        $previous_page_id = (int) get_option(self::OPTION_PAGE_ID, 0);
         $page_id  = isset($_POST['ecopro_front_page']) ? absint($_POST['ecopro_front_page']) : 0;
         update_option(self::OPTION_PAGE_ID, $page_id, false);
+        foreach (array_unique(array_filter([$previous_page_id, $page_id])) as $protected_page_id) {
+            if (get_post((int) $protected_page_id) instanceof WP_Post) {
+                wp_update_post(['ID' => (int) $protected_page_id, 'post_password' => '']);
+            }
+        }
         if ($password !== '') {
             update_option(self::OPTION_PASSWORD, password_hash($password, PASSWORD_DEFAULT), false);
-            if ($page_id > 0 && get_post($page_id) instanceof WP_Post) {
-                wp_update_post(['ID'=>$page_id,'post_password'=>$password]);
-            }
+            $this->rotate_front_session_version();
+            $this->clear_frontend_access();
         }
         wp_safe_redirect(admin_url('admin.php?page=eco-pro')); exit;
     }
@@ -1508,7 +1585,6 @@ final class EconomiaPro {
         $type = isset($_POST['type']) ? sanitize_text_field(wp_unslash($_POST['type'])) : 'expense';
         $name = isset($_POST['name']) ? sanitize_text_field(wp_unslash($_POST['name'])) : '';
         if (!in_array($type,['income','expense'],true) || $name==='') $this->safe_back_redirect('invalid');
-        $this->create_or_update_tables();
         $this->backfill_missing_slugs();
         $result = $wpdb->insert($this->table_categories, ['name'=>$name,'slug'=>$this->unique_slug($name),'type'=>$type], ['%s','%s','%s']);
         if ($result === false) { error_log('economia-pro add_category DB error: '.$wpdb->last_error); $this->safe_back_redirect('db_error'); }
@@ -1546,7 +1622,6 @@ final class EconomiaPro {
         $amount = isset($_POST['amount']) ? (float)$_POST['amount'] : 0;
         $description = isset($_POST['description']) ? sanitize_text_field(wp_unslash($_POST['description'])) : '';
         if (!in_array($type,['income','expense'],true) || $amount<=0 || $description==='' || $category_id<=0) $this->safe_back_redirect('invalid');
-        $this->create_or_update_tables();
         $cat_type = $wpdb->get_var($wpdb->prepare("SELECT type FROM {$this->table_categories} WHERE id = %d", $category_id));
         if ($cat_type !== $type) $this->safe_back_redirect('type_mismatch');
         $result = $wpdb->insert($this->table_transactions, ['type'=>$type,'category_id'=>$category_id,'amount'=>$amount,'description'=>$description], ['%s','%d','%f','%s']);
@@ -1573,31 +1648,90 @@ final class EconomiaPro {
         $this->safe_back_redirect('tx_updated');
     }
 
+    public function delete_tx(): void {
+        check_admin_referer('ecopro_delete_tx');
+        if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
+        global $wpdb;
+        $tx_id = isset($_POST['tx_id']) ? absint($_POST['tx_id']) : 0;
+        if ($tx_id <= 0) $this->safe_back_redirect('invalid');
+        $result = $wpdb->delete($this->table_transactions, ['id' => $tx_id], ['%d']);
+        if ($result === false) { error_log('economia-pro delete_tx DB error: '.$wpdb->last_error); $this->safe_back_redirect('db_error'); }
+        $this->run_daily_checks();
+        $this->safe_back_redirect('tx_deleted');
+    }
+
+    public function duplicate_tx(): void {
+        check_admin_referer('ecopro_duplicate_tx');
+        if (!$this->frontend_or_admin_can_manage()) wp_die('No autorizado.');
+        global $wpdb;
+        $tx_id = isset($_POST['tx_id']) ? absint($_POST['tx_id']) : 0;
+        if ($tx_id <= 0) $this->safe_back_redirect('invalid');
+        $tx = $this->get_transaction($tx_id);
+        if (!$tx) $this->safe_back_redirect('invalid');
+        $result = $wpdb->insert(
+            $this->table_transactions,
+            [
+                'type' => (string) $tx->type,
+                'category_id' => (int) $tx->category_id,
+                'amount' => (float) $tx->amount,
+                'description' => (string) $tx->description . ' [copia]',
+                'created_at' => current_time('mysql'),
+            ],
+            ['%s','%d','%f','%s','%s']
+        );
+        if ($result === false) { error_log('economia-pro duplicate_tx DB error: '.$wpdb->last_error); $this->safe_back_redirect('db_error'); }
+        $this->run_daily_checks();
+        $this->safe_back_redirect('tx_duplicated');
+    }
+
     private function frontend_or_admin_can_manage(): bool {
         if (current_user_can('manage_options')) return true;
         return $this->frontend_access_granted();
     }
 
     private function frontend_access_granted(): bool {
-        if (!empty($_COOKIE[self::COOKIE_FRONT_OK]) && hash_equals('1', (string) $_COOKIE[self::COOKIE_FRONT_OK])) {
-            return true;
+        $payload = isset($_COOKIE[self::COOKIE_FRONT_OK]) ? (string) wp_unslash($_COOKIE[self::COOKIE_FRONT_OK]) : '';
+        if ($payload === '') {
+            return false;
         }
-        if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
-            session_start();
+
+        $parts = explode(':', $payload, 2);
+        if (count($parts) !== 2 || !ctype_digit($parts[0]) || $parts[1] === '') {
+            $this->clear_frontend_access();
+            return false;
         }
-        return !empty($_SESSION['ecopro_front_ok']);
+
+        $cookie_version = (int) $parts[0];
+        $token = $parts[1];
+        if ($cookie_version !== $this->get_front_session_version()) {
+            $this->clear_frontend_access();
+            return false;
+        }
+
+        $token_hash = hash('sha256', $token);
+        $stored = get_transient($this->get_front_session_transient_key($token_hash));
+        if (!is_array($stored) || empty($stored['hash']) || !hash_equals((string) $stored['hash'], $token_hash)) {
+            $this->clear_frontend_access();
+            return false;
+        }
+
+        return true;
     }
 
     private function mark_frontend_access_granted(): void {
-        if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
-            session_start();
-        }
-        $_SESSION['ecopro_front_ok'] = 1;
+        $token = wp_generate_password(64, false, false);
+        $token_hash = hash('sha256', $token);
+        set_transient(
+            $this->get_front_session_transient_key($token_hash),
+            ['hash' => $token_hash, 'created_at' => time()],
+            DAY_IN_SECONDS * 30
+        );
 
         if (!headers_sent()) {
             $secure = is_ssl();
             $path = defined('COOKIEPATH') && COOKIEPATH ? COOKIEPATH : '/';
-            setcookie(self::COOKIE_FRONT_OK, '1', [
+            $cookie_value = $this->get_front_session_version() . ':' . $token;
+            setcookie(self::COOKIE_FRONT_OK, $cookie_value, [
                 'expires' => time() + DAY_IN_SECONDS * 30,
                 'path' => $path,
                 'domain' => '',
@@ -1605,8 +1739,58 @@ final class EconomiaPro {
                 'httponly' => true,
                 'samesite' => 'Lax',
             ]);
-            $_COOKIE[self::COOKIE_FRONT_OK] = '1';
+            $_COOKIE[self::COOKIE_FRONT_OK] = $cookie_value;
         }
+    }
+
+    private function get_front_session_version(): int {
+        $version = (int) get_option(self::OPTION_FRONT_SESSION_VERSION, 1);
+        if ($version < 1) {
+            $version = 1;
+            update_option(self::OPTION_FRONT_SESSION_VERSION, $version, false);
+        }
+        return $version;
+    }
+
+    private function rotate_front_session_version(): int {
+        $next_version = $this->get_front_session_version() + 1;
+        update_option(self::OPTION_FRONT_SESSION_VERSION, $next_version, false);
+        return $next_version;
+    }
+
+    private function get_front_session_transient_key(string $token_hash): string {
+        return self::FRONT_SESSION_TRANSIENT_PREFIX . $token_hash;
+    }
+
+    private function clear_frontend_access(): void {
+        $payload = isset($_COOKIE[self::COOKIE_FRONT_OK]) ? (string) wp_unslash($_COOKIE[self::COOKIE_FRONT_OK]) : '';
+        if ($payload !== '') {
+            $parts = explode(':', $payload, 2);
+            if (count($parts) === 2 && $parts[1] !== '') {
+                delete_transient($this->get_front_session_transient_key(hash('sha256', $parts[1])));
+            }
+        }
+
+        if (!headers_sent()) {
+            $secure = is_ssl();
+            $path = defined('COOKIEPATH') && COOKIEPATH ? COOKIEPATH : '/';
+            setcookie(self::COOKIE_FRONT_OK, '', [
+                'expires' => time() - HOUR_IN_SECONDS,
+                'path' => $path,
+                'domain' => '',
+                'secure' => $secure,
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
+        }
+
+        unset($_COOKIE[self::COOKIE_FRONT_OK]);
+    }
+
+    public function logout_frontend(): void {
+        check_admin_referer('ecopro_front_logout');
+        $this->clear_frontend_access();
+        $this->safe_back_redirect('logged_out');
     }
 
     private function safe_back_redirect(string $notice=''): void {
@@ -1618,7 +1802,7 @@ final class EconomiaPro {
                 $referer = admin_url('admin.php?page=eco-pro');
             }
         }
-        $referer = remove_query_arg('edit_tx', $referer);
+        $referer = remove_query_arg(['edit_tx', 'eco_login'], $referer);
         if ($notice !== '') $referer = add_query_arg('eco_notice', $notice, $referer);
         wp_safe_redirect($referer); exit;
     }
@@ -1724,14 +1908,54 @@ final class EconomiaPro {
         return $html.'</ul></div>';
     }
 
+    private function render_tx_action_links($tx, bool $admin = false): string {
+        $edit_url = $admin
+            ? admin_url('admin.php?page=eco-pro&edit_tx='.(int)$tx->id)
+            : $this->current_url_with(['edit_tx' => (int) $tx->id]);
+        $duplicate_form = '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline-block;">'
+            . wp_nonce_field('ecopro_duplicate_tx','_wpnonce',true,false)
+            . '<input type="hidden" name="action" value="ecopro_duplicate_tx">'
+            . '<input type="hidden" name="tx_id" value="'.(int)$tx->id.'">'
+            . '<button type="submit" class="'.($admin ? 'button button-small' : 'ecopro-btn').'" style="'.($admin ? 'padding:0 8px;' : 'padding:8px 12px;').'">Duplicar</button>'
+            . '</form>';
+        $delete_form = '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" onsubmit="return confirm(\'¿Eliminar este movimiento?\');" style="display:inline-block;">'
+            . wp_nonce_field('ecopro_delete_tx','_wpnonce',true,false)
+            . '<input type="hidden" name="action" value="ecopro_delete_tx">'
+            . '<input type="hidden" name="tx_id" value="'.(int)$tx->id.'">'
+            . '<button type="submit" class="'.($admin ? 'button button-small' : 'ecopro-btn').'" style="'.($admin ? 'padding:0 8px;' : 'padding:8px 12px;').'">Borrar</button>'
+            . '</form>';
+        return '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+            . '<a class="'.($admin ? '' : 'ecopro-link').'" href="'.esc_url($edit_url).'">Editar</a>'
+            . $duplicate_form
+            . $delete_form
+            . '</div>';
+    }
+
+    private function render_recurring_action_forms($row, bool $admin = false): string {
+        $toggle_btn_class = $admin ? 'button button-small' : 'ecopro-btn';
+        $delete_btn_class = $toggle_btn_class;
+        $toggle_style = $admin ? '' : 'padding:8px 12px;';
+        $delete_style = $toggle_style;
+        $toggle_form = '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline-block;">'
+            . wp_nonce_field('ecopro_toggle_recurring','_wpnonce',true,false)
+            . '<input type="hidden" name="action" value="ecopro_toggle_recurring">'
+            . '<input type="hidden" name="recurring_id" value="'.(int)$row->id.'">'
+            . '<button type="submit" class="'.$toggle_btn_class.'" style="'.$toggle_style.'">'.((int)$row->is_active === 1 ? 'Pausar' : 'Activar').'</button>'
+            . '</form>';
+        $delete_form = '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" onsubmit="return confirm(\'¿Eliminar este recurrente?\');" style="display:inline-block;">'
+            . wp_nonce_field('ecopro_delete_recurring','_wpnonce',true,false)
+            . '<input type="hidden" name="action" value="ecopro_delete_recurring">'
+            . '<input type="hidden" name="recurring_id" value="'.(int)$row->id.'">'
+            . '<button type="submit" class="'.$delete_btn_class.'" style="'.$delete_style.'">Borrar</button>'
+            . '</form>';
+        return '<div style="display:flex;gap:8px;flex-wrap:wrap;">'.$toggle_form.$delete_form.'</div>';
+    }
+
     private function render_front_recent_transactions(array $rows, array $categories, array $filters): string {
-        $export_url = esc_url(add_query_arg(array_filter([
-            'action' => 'ecopro_export_csv',
-            'eco_month' => $filters['month'],
-            'eco_type' => $filters['type'],
-            'eco_category' => $filters['category_id'] > 0 ? (string)$filters['category_id'] : '',
-        ], function($v){ return $v !== '' && $v !== null; }), admin_url('admin-post.php')));
-        $html = '<div class="ecopro-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><h2 style="margin:0;color:#ffffff;">Últimos movimientos</h2><div style="display:flex;gap:8px;flex-wrap:wrap;"><a class="ecopro-btn" href="'.$export_url.'" style="text-decoration:none;">Exportar CSV</a><a class="ecopro-btn" href="'.esc_url(admin_url('admin-post.php?action=ecopro_export_json')).'" style="text-decoration:none;">Exportar JSON</a></div></div>';
+        $export_csv_url = $this->build_export_url('csv', $filters);
+        $export_json_url = $this->build_export_url('json', $filters);
+        $logout_url = esc_url(wp_nonce_url(admin_url('admin-post.php?action=ecopro_front_logout'), 'ecopro_front_logout'));
+        $html = '<div class="ecopro-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><h2 style="margin:0;color:#ffffff;">Últimos movimientos</h2><div style="display:flex;gap:8px;flex-wrap:wrap;"><a class="ecopro-btn" href="'.$export_csv_url.'" style="text-decoration:none;">Exportar CSV</a><a class="ecopro-btn" href="'.$export_json_url.'" style="text-decoration:none;">Exportar JSON</a><a class="ecopro-btn" href="'.$logout_url.'" style="text-decoration:none;">Cerrar acceso</a></div></div>';
         $html .= '<form method="get" action="" class="ecopro-form" style="margin-top:12px;margin-bottom:12px;"><input type="month" name="eco_month" value="'.esc_attr($filters['month']).'" class="ecopro-input"><select name="eco_type" class="ecopro-select"><option value="">Todos</option><option value="income"'.selected($filters['type'],'income',false).'>Ingreso</option><option value="expense"'.selected($filters['type'],'expense',false).'>Gasto</option></select><select name="eco_category" class="ecopro-select"><option value="0">Todas las categorías</option>';
         foreach ($categories as $cat) {
             $html .= '<option value="'.(int)$cat->id.'"'.selected((int)$filters['category_id'], (int)$cat->id, false).'>'.esc_html($cat->name).'</option>';
@@ -1739,7 +1963,7 @@ final class EconomiaPro {
         $html .= '</select><button type="submit" class="ecopro-btn">Filtrar</button><a class="ecopro-link" href="'.$this->current_url_with(['eco_month'=>null,'eco_type'=>null,'eco_category'=>null]).'">Reset</a></form>';
         if (empty($rows)) return $html.'<p class="ecopro-muted">No hay movimientos todavía.</p></div>';
         $html .= '<div class="ecopro-table-wrap"><table class="ecopro-table"><thead><tr><th>Tipo</th><th>Categoría</th><th>Cantidad</th><th>Descripción</th><th>Acción</th></tr></thead><tbody>';
-        foreach ($rows as $r) { $edit_url = $this->current_url_with(['edit_tx' => (int)$r->id]); $catLabel = $r->category_name ? '<span class="ecopro-chip">'.$this->get_category_icon($r->category_name, $r->type).' '.esc_html($r->category_name).'</span>' : '—'; $html .= '<tr><td>'.($r->type==='income'?'Ingreso':'Gasto').'</td><td>'.$catLabel.'</td><td><span class="amount">'.esc_html(number_format((float)$r->amount,2,',','.')).' €</span></td><td>'.esc_html($r->description).'</td><td><a class="ecopro-link" href="'.$edit_url.'">Editar</a></td></tr>'; }
+        foreach ($rows as $r) { $catLabel = $r->category_name ? '<span class="ecopro-chip">'.$this->get_category_icon($r->category_name, $r->type).' '.esc_html($r->category_name).'</span>' : '—'; $html .= '<tr><td>'.($r->type==='income'?'Ingreso':'Gasto').'</td><td>'.$catLabel.'</td><td><span class="amount">'.esc_html(number_format((float)$r->amount,2,',','.')).' €</span></td><td>'.esc_html($r->description).'</td><td>'.$this->render_tx_action_links($r, false).'</td></tr>'; }
         return $html.'</tbody></table></div></div>';
     }
 
@@ -1750,7 +1974,31 @@ final class EconomiaPro {
         return '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 12px 0;color:#ffffff;">Ingresos vs Gastos</h2><div class="ecopro-chart-wrap"><canvas class="ecopro-chart-donut-income-expense" height="180" data-income="' . esc_attr((string)$income) . '" data-expense="' . esc_attr((string)$expense) . '"></canvas></div></div>';
     }
 
-    
+
+    private function render_front_category_bars(array $rows): string {
+        if (empty($rows)) return '';
+        $max = 0.0;
+        foreach ($rows as $r) {
+            if (($r->type ?? '') !== 'expense') continue;
+            $v = (float)($r->total ?? 0);
+            if ($v > $max) $max = $v;
+        }
+        if ($max <= 0) return '';
+        ob_start(); ?>
+        <div class="ecopro-card ecopro-reveal">
+            <h2 style="margin:0 0 14px 0;color:#ffffff;">Gasto por categoría</h2>
+            <div class="ecopro-category-bars">
+                <?php foreach($rows as $r): if(($r->type ?? '') !== 'expense') continue; $pct = $max > 0 ? round((((float)$r->total)/$max)*100) : 0; ?>
+                    <div class="ecopro-category-bar">
+                        <div class="ecopro-category-label"><?php echo esc_html($r->name); ?></div>
+                        <div class="ecopro-category-track"><div class="ecopro-category-fill" style="width:<?php echo esc_attr((string)$pct); ?>%"></div></div>
+                        <div class="ecopro-category-value"><?php echo esc_html(number_format((float)$r->total,2,',','.')); ?> €</div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php return ob_get_clean();
+    }
 
     private function get_daily_spend_analytics(string $period = ''): array {
         $series = $this->get_daily_expense_series($period);
@@ -1758,10 +2006,9 @@ final class EconomiaPro {
         $max_day = 0;
         $sum = 0.0;
         $count = 0;
-
         foreach ($series as $item) {
-            $amount = (float) ($item['amount'] ?? 0);
-            $day = (int) ($item['day'] ?? 0);
+            $amount = (float)($item['amount'] ?? 0);
+            $day = (int)($item['day'] ?? 0);
             $sum += $amount;
             $count++;
             if ($amount > $max_amount) {
@@ -1769,20 +2016,15 @@ final class EconomiaPro {
                 $max_day = $day;
             }
         }
-
         $avg = $count > 0 ? $sum / $count : 0.0;
         $spike_threshold = $avg * 1.8;
         $spike_days = [];
         foreach ($series as $item) {
-            $amount = (float) ($item['amount'] ?? 0);
-            if ($amount > 0 && $amount >= $spike_threshold && $avg > 0) {
-                $spike_days[] = [
-                    'day' => (int) $item['day'],
-                    'amount' => $amount,
-                ];
+            $amount = (float)($item['amount'] ?? 0);
+            if ($amount > 0 && $avg > 0 && $amount >= $spike_threshold) {
+                $spike_days[] = ['day' => (int)$item['day'], 'amount' => $amount];
             }
         }
-
         return [
             'series' => $series,
             'avg' => $avg,
@@ -1795,91 +2037,112 @@ final class EconomiaPro {
     private function render_front_daily_spend_timeline(array $analytics): string {
         $series = $analytics['series'] ?? [];
         if (empty($series)) return '';
-
         $max = 0.0;
+        foreach ($series as $row) $max = max($max, (float)($row['amount'] ?? 0));
+        $html = '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 14px 0;color:#ffffff;">Gasto diario del mes</h2><div class="ecopro-daily-chart">';
         foreach ($series as $row) {
-            $max = max($max, (float) ($row['amount'] ?? 0));
-        }
-
-        $html = '<div class="ecopro-card ecopro-reveal">';
-        $html .= '<h2 style="margin:0 0 14px 0;color:#ffffff;">Gasto diario del mes</h2>';
-        $html .= '<div class="ecopro-daily-chart">';
-
-        foreach ($series as $row) {
-            $day = (int) ($row['day'] ?? 0);
-            $amount = (float) ($row['amount'] ?? 0);
-            $height = $max > 0 ? max(8, (int) round(($amount / $max) * 120)) : 8;
+            $day = (int)($row['day'] ?? 0);
+            $amount = (float)($row['amount'] ?? 0);
+            $height = $max > 0 ? max(8, (int)round(($amount / $max) * 120)) : 8;
             $is_spike = false;
             foreach (($analytics['spike_days'] ?? []) as $spike) {
-                if ((int) $spike['day'] === $day) {
-                    $is_spike = true;
-                    break;
-                }
+                if ((int)$spike['day'] === $day) { $is_spike = true; break; }
             }
             $bar_class = $is_spike ? ' ecopro-daily-bar-spike' : '';
-            $html .= '<div class="ecopro-daily-item" title="Día ' . esc_attr((string)$day) . ': ' . esc_attr(number_format($amount,2,',','.')) . ' €">';
-            $html .= '<div class="ecopro-daily-bar-wrap"><div class="ecopro-daily-bar' . $bar_class . '" style="height:' . esc_attr((string)$height) . 'px"></div></div>';
-            $html .= '<div class="ecopro-daily-label">' . esc_html((string)$day) . '</div>';
-            $html .= '</div>';
+            $html .= '<div class="ecopro-daily-item" title="Día '.esc_attr((string)$day).': '.esc_attr(number_format($amount,2,',','.')).' €"><div class="ecopro-daily-bar-wrap"><div class="ecopro-daily-bar'.$bar_class.'" style="height:'.esc_attr((string)$height).'px"></div></div><div class="ecopro-daily-label">'.esc_html((string)$day).'</div></div>';
         }
-
         $html .= '</div>';
-
         $html .= '<div class="ecopro-grid-3" style="margin-top:16px;">';
-        $html .= '<div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Media diaria</h3><div class="amount" style="font-size:22px;margin-top:8px;">' . esc_html(number_format((float)$analytics['avg'],2,',','.')) . ' €</div></div>';
-        $html .= '<div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Pico mayor</h3><div class="amount" style="font-size:22px;margin-top:8px;">' . esc_html(number_format((float)$analytics['max_amount'],2,',','.')) . ' €</div></div>';
-        $html .= '<div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Día más caro</h3><div class="amount" style="font-size:22px;margin-top:8px;">' . esc_html((string)($analytics['max_day'] ?: 0)) . '</div></div>';
+        $html .= '<div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Media diaria</h3><div class="amount" style="font-size:22px;margin-top:8px;">'.esc_html(number_format((float)$analytics['avg'],2,',','.')).' €</div></div>';
+        $html .= '<div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Pico mayor</h3><div class="amount" style="font-size:22px;margin-top:8px;">'.esc_html(number_format((float)$analytics['max_amount'],2,',','.')).' €</div></div>';
+        $html .= '<div class="ecopro-card ecopro-card-metric"><h3 style="margin:0;">Día más caro</h3><div class="amount" style="font-size:22px;margin-top:8px;">'.esc_html((string)($analytics['max_day'] ?: 0)).'</div></div>';
         $html .= '</div>';
-
         if (!empty($analytics['spike_days'])) {
             $chips = [];
             foreach ($analytics['spike_days'] as $spike) {
-                $chips[] = '<span class="ecopro-chip">Día ' . esc_html((string)$spike['day']) . ' · ' . esc_html(number_format((float)$spike['amount'],2,',','.')) . ' €</span>';
+                $chips[] = '<span class="ecopro-chip">Día '.esc_html((string)$spike['day']).' · '.esc_html(number_format((float)$spike['amount'],2,',','.')).' €</span>';
             }
-            $html .= '<div style="margin-top:14px;"><h3 style="margin:0 0 10px 0;color:#ffffff;">Picos detectados</h3><div style="display:flex;gap:8px;flex-wrap:wrap;">' . implode('', $chips) . '</div></div>';
+            $html .= '<div style="margin-top:14px;"><h3 style="margin:0 0 10px 0;color:#ffffff;">Picos detectados</h3><div style="display:flex;gap:8px;flex-wrap:wrap;">'.implode('', $chips).'</div></div>';
         }
-
-        $html .= '</div>';
-        return $html;
+        return $html.'</div>';
     }
 
-    private function render_front_category_bars(array $rows): string {
+    private function get_budget_status_rows(array $budget_rows): array {
+        $rows = [];
+        foreach ($budget_rows as $row) {
+            $budget = isset($row->budget_amount) ? (float)$row->budget_amount : 0.0;
+            $spent = isset($row->spent_amount) ? (float)$row->spent_amount : 0.0;
+            if ($budget <= 0) continue;
+            $pct = $budget > 0 ? ($spent / $budget) * 100 : 0.0;
+            $state = 'ok';
+            if ($pct >= 100) $state = 'danger';
+            elseif ($pct >= 80) $state = 'warn';
+            $rows[] = [
+                'name' => (string)($row->name ?? 'Categoría'),
+                'budget' => $budget,
+                'spent' => $spent,
+                'pct' => max(0, min(999, $pct)),
+                'state' => $state,
+            ];
+        }
+        usort($rows, function($a, $b){ return $b['pct'] <=> $a['pct']; });
+        return $rows;
+    }
+
+    private function render_front_budget_status(array $rows): string {
         if (empty($rows)) return '';
-        $max = 0;
-        foreach ($rows as $r) {
-            $v = (float)$r->total;
-            if ($v > $max) $max = $v;
+        $html = '<div class="ecopro-card ecopro-reveal"><h2 style="margin:0 0 14px 0;color:#ffffff;">Radar de presupuesto</h2><div class="ecopro-budget-status-list">';
+        foreach ($rows as $row) {
+            $cls = $row['state'] === 'danger' ? ' ecopro-budget-danger' : ($row['state'] === 'warn' ? ' ecopro-budget-warn' : ' ecopro-budget-ok');
+            $html .= '<div class="ecopro-budget-status-item"><div class="ecopro-budget-status-head"><span class="ecopro-chip">'.esc_html($row['name']).'</span><strong>'.esc_html(number_format((float)$row['pct'],1,',','.')).'%</strong></div><div class="ecopro-budget-status-track"><div class="ecopro-budget-status-fill'.$cls.'" style="width:'.esc_attr((string)min(100, (float)$row['pct'])).'%"></div></div><div class="ecopro-budget-status-meta">Gastado '.esc_html(number_format((float)$row['spent'],2,',','.')).' € de '.esc_html(number_format((float)$row['budget'],2,',','.')).' €</div></div>';
+        }
+        return $html.'</div></div>';
+    }
+
+    private function render_budget_status_admin(array $rows, string $title = 'Radar de presupuesto'): string {
+        if (empty($rows)) {
+            return '<div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;"><h2 style="margin-top:0;">'.esc_html($title).'</h2><p style="margin:0;">No hay presupuestos activos todavía.</p></div>';
         }
         ob_start(); ?>
-        <div class="ecopro-card ecopro-reveal">
-        <h2 style="margin:0 0 14px 0;color:#ffffff;">Gasto por categoría</h2>
-        <div class="ecopro-category-bars">
-        <?php foreach($rows as $r):
-        if($r->type!=='expense') continue;
-        $pct = $max>0 ? round(($r->total/$max)*100) : 0; ?>
-        <div class="ecopro-category-bar">
-        <div class="ecopro-category-label"><?php echo esc_html($r->name); ?></div>
-        <div class="ecopro-category-track">
-        <div class="ecopro-category-fill" style="width:<?php echo esc_attr($pct); ?>%"></div>
+        <div style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;">
+            <h2 style="margin-top:0;"><?php echo esc_html($title); ?></h2>
+            <div class="ecopro-budget-status-list">
+                <?php foreach ($rows as $row): ?>
+                    <?php $cls = $row['state'] === 'danger' ? ' ecopro-budget-danger' : ($row['state'] === 'warn' ? ' ecopro-budget-warn' : ' ecopro-budget-ok'); ?>
+                    <div class="ecopro-budget-status-item">
+                        <div class="ecopro-budget-status-head">
+                            <span><?php echo esc_html($row['name']); ?></span>
+                            <strong><?php echo esc_html(number_format((float)$row['pct'], 1, ',', '.')); ?>%</strong>
+                        </div>
+                        <div class="ecopro-budget-status-track">
+                            <div class="ecopro-budget-status-fill<?php echo esc_attr($cls); ?>" style="width:<?php echo esc_attr((string)min(100, (float)$row['pct'])); ?>%"></div>
+                        </div>
+                        <div class="ecopro-budget-status-meta">Gastado <?php echo esc_html(number_format((float)$row['spent'], 2, ',', '.')); ?> € de <?php echo esc_html(number_format((float)$row['budget'], 2, ',', '.')); ?> €</div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
         </div>
-        <div class="ecopro-category-value"><?php echo esc_html(number_format($r->total,2,',','.')); ?> €</div>
-        </div>
-        <?php endforeach; ?>
-        </div>
-        </div>
-        <?php
-        return ob_get_clean();
+        <?php return ob_get_clean();
     }
 
-public function dashboard(): string {
+    public function dashboard(): string {
         $stored_hash = (string)get_option(self::OPTION_PASSWORD,'');
+        $login_nonce = wp_nonce_field('ecopro_front_login', 'ecopro_front_login_nonce', true, false);
         if ($stored_hash==='') return $this->front_css().'<div class="ecopro-wrap"><p style="margin:0;color:#1d2327;">El administrador todavía no ha configurado la contraseña.</p></div>';
         if (isset($_POST['eco_login'])) {
             $password = isset($_POST['eco_pass']) ? (string)wp_unslash($_POST['eco_pass']) : '';
-            if (password_verify($password, $stored_hash)) $this->mark_frontend_access_granted();
-            else return $this->front_css().'<div class="ecopro-wrap"><p style="margin:0 0 12px 0;color:#b32d2e;font-weight:600;">Contraseña incorrecta.</p><form method="post"><p style="margin:0 0 16px 0;"><input type="password" name="eco_pass" placeholder="Contraseña" class="ecopro-input" required></p><p style="margin:0;"><button type="submit" class="ecopro-btn">Reintentar</button></p><input type="hidden" name="eco_login" value="1"></form></div>';
+            $nonce = isset($_POST['ecopro_front_login_nonce']) ? sanitize_text_field(wp_unslash($_POST['ecopro_front_login_nonce'])) : '';
+            if (!wp_verify_nonce($nonce, 'ecopro_front_login')) {
+                $this->clear_frontend_access();
+                return $this->front_css().'<div class="ecopro-wrap"><p style="margin:0 0 12px 0;color:#b32d2e;font-weight:600;">La sesión del formulario no es válida. Recarga la página e inténtalo otra vez.</p><form method="post"><p style="margin:0 0 16px 0;"><input type="password" name="eco_pass" placeholder="Contraseña" class="ecopro-input" required></p><p style="margin:0;"><button type="submit" class="ecopro-btn">Reintentar</button></p><input type="hidden" name="eco_login" value="1">'.$login_nonce.'</form></div>';
+            }
+            if (password_verify($password, $stored_hash)) {
+                $this->mark_frontend_access_granted();
+            } else {
+                return $this->front_css().'<div class="ecopro-wrap"><p style="margin:0 0 12px 0;color:#b32d2e;font-weight:600;">Contraseña incorrecta.</p><form method="post"><p style="margin:0 0 16px 0;"><input type="password" name="eco_pass" placeholder="Contraseña" class="ecopro-input" required></p><p style="margin:0;"><button type="submit" class="ecopro-btn">Reintentar</button></p><input type="hidden" name="eco_login" value="1">'.$login_nonce.'</form></div>';
+            }
         }
-        if (!$this->frontend_access_granted()) return $this->front_css().'<form method="post" class="ecopro-wrap"><h2 class="ecopro-title">Acceso Economía</h2><p style="margin:0 0 18px 0;color:#50575e;">Introduce tu contraseña para acceder al panel financiero.</p><p style="margin:0 0 16px 0;"><input type="password" name="eco_pass" placeholder="Contraseña" class="ecopro-input" required></p><p style="margin:0;"><button type="submit" class="ecopro-btn">Entrar</button></p><input type="hidden" name="eco_login" value="1"></form>';
+        if (!$this->frontend_access_granted()) return $this->front_css().'<form method="post" class="ecopro-wrap"><h2 class="ecopro-title">Acceso Economía</h2>'.$this->render_page_subtitle('acciones clave', true).'<p style="margin:0 0 18px 0;color:#50575e;">Introduce tu contraseña para acceder al panel financiero.</p><p style="margin:0 0 16px 0;"><input type="password" name="eco_pass" placeholder="Contraseña" class="ecopro-input" required></p><p style="margin:0;"><button type="submit" class="ecopro-btn">Entrar</button></p><input type="hidden" name="eco_login" value="1">'.$login_nonce.'</form>';
         $totals = $this->get_totals();
         $categories = $this->get_categories();
         $filters = $this->get_filter_values();
@@ -1892,6 +2155,7 @@ public function dashboard(): string {
         $edit_tx = $edit_id ? $this->get_transaction($edit_id) : null;
         $period = $this->get_current_period();
         $budget_rows = $this->get_budget_rows($period);
+        $budget_status_rows = $this->get_budget_status_rows($budget_rows);
         $budget_overview = $this->get_budget_overview_cards($period);
         $projection = $this->get_month_projection();
         $expense_category_rows = $this->get_expense_by_category($period);
@@ -1899,11 +2163,11 @@ public function dashboard(): string {
         $month_insights = $this->get_month_insights($period);
         $month_comparison = $this->get_month_comparison($period);
         $category_balance_rows = $this->get_category_balance_rows($period);
-        $chart_data = $this->get_month_chart_data($period);
         $daily_spend_analytics = $this->get_daily_spend_analytics($period);
+        $chart_data = $this->get_month_chart_data($period);
         $categories_json = wp_json_encode(array_map(function($cat){ return ['id'=>(int)$cat->id,'name'=>$cat->name,'type'=>$cat->type]; }, $categories));
 
-        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->get_notice_html().$this->render_front_stats($totals).$this->render_front_projection_box($projection).$this->render_front_month_insights($month_insights).$this->render_front_month_comparison($month_comparison).$this->render_front_income_expense_chart($chart_data).$this->render_front_category_balance($category_balance_rows).$this->render_front_category_bars($category_balance_rows).$this->render_front_daily_spend_timeline($daily_spend_analytics).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recurring_box($categories, $recurring_rows).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
+        return $this->front_css().'<div class="ecopro-wrap"><h2 class="ecopro-title">Dashboard Economía</h2>'.$this->render_page_subtitle('acciones clave', true).$this->get_notice_html().$this->render_front_stats($totals).$this->render_front_projection_box($projection).$this->render_front_month_insights($month_insights).$this->render_front_month_comparison($month_comparison).$this->render_front_income_expense_chart($chart_data).$this->render_front_category_balance($category_balance_rows).$this->render_front_category_bars($category_balance_rows).$this->render_front_budget_status($budget_status_rows).$this->render_front_daily_spend_timeline($daily_spend_analytics).'<div class="ecopro-grid-2">'.$this->render_front_category_form().$this->render_front_tx_form($categories, $edit_tx).'</div><div style="margin-bottom:16px;">'.$this->render_front_budget_box($categories, $period, $budget_overview, $budget_rows).'</div><div class="ecopro-grid-2">'.$this->render_front_monthly_chart_box($monthly_summary).$this->render_front_monthly_summary_box($monthly_summary).$this->render_front_notifications_box($notifications).'</div><div class="ecopro-grid-2">'.$this->render_front_category_summary($summary).'</div><div style="margin-top:16px;">'.$this->render_front_recurring_box($categories, $recurring_rows).'</div><div style="margin-top:16px;">'.$this->render_front_recent_transactions($rows, $categories, $filters).'</div></div><script>(function(){const categories='.$categories_json.';function bindFilter(typeId,categoryId){const typeEl=document.getElementById(typeId);const catEl=document.getElementById(categoryId);if(!typeEl||!catEl)return;const initial=catEl.value;function render(){const selectedType=typeEl.value;const previous=catEl.value||initial;catEl.innerHTML="";const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Categoría";catEl.appendChild(placeholder);categories.forEach(cat=>{if(cat.type!==selectedType)return;const opt=document.createElement("option");opt.value=String(cat.id);opt.textContent=cat.name;if(String(cat.id)===String(previous))opt.selected=true;catEl.appendChild(opt);});}typeEl.addEventListener("change",render);render();}bindFilter("ecopro-front-type","ecopro-front-category");})();</script>';
     }
 }
 new EconomiaPro();
